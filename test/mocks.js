@@ -66,7 +66,7 @@ function elevenRoute(mp3) {
 function falRoutes(mp4) {
   let n = 0;
   return [
-    ['POST', /queue\.fal\.run\/fal-ai\/veo3\/fast$/, (u, o) => {
+    ['POST', /queue\.fal\.run\/fal-ai\/veo3\.1\/fast$/, (u, o) => {
       const b = JSON.parse(o.body);
       assert.equal(b.aspect_ratio, '9:16');
       assert.equal(b.duration, '6s');
