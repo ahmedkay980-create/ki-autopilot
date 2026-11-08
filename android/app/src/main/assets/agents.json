@@ -1,0 +1,243 @@
+{
+ "formats": {
+  "news60": "AI News in 60s – what happened, why it matters, what comes next",
+  "explainer": "Explainer – how something works, with one strong analogy",
+  "tool": "Useful AI – one tool or use case and what it means for the viewer",
+  "myth": "Myth vs. fact – a common belief, then the surprising truth",
+  "list": "Top 3 – three quick, concrete items with a payoff at the end",
+  "future": "What this means for you – job, money, daily life, grounded in facts"
+ },
+ "topicsSchema": {
+  "type": "object",
+  "properties": {
+   "topics": {
+    "type": "array",
+    "minItems": 3,
+    "maxItems": 10,
+    "items": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string",
+       "description": "Video title in the channel language, max 70 characters, specific and curiosity-driven"
+      },
+      "hook": {
+       "type": "string",
+       "description": "Spoken first sentence in the channel language, max 14 words"
+      },
+      "angle": {
+       "type": "string",
+       "description": "GERMAN: our specific angle in one sentence"
+      },
+      "whyNow": {
+       "type": "string",
+       "description": "GERMAN: why this works right now, citing a number from the signals"
+      },
+      "format": {
+       "type": "string",
+       "enum": [
+        "news60",
+        "explainer",
+        "tool",
+        "myth",
+        "list",
+        "future"
+       ]
+      },
+      "demand": {
+       "type": "integer",
+       "minimum": 0,
+       "maximum": 100,
+       "description": "Expected audience demand from the signals"
+      },
+      "competition": {
+       "type": "string",
+       "enum": [
+        "niedrig",
+        "mittel",
+        "hoch"
+       ]
+      },
+      "evergreen": {
+       "type": "boolean"
+      },
+      "signals": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       },
+       "description": "Indices of the supporting signals"
+      }
+     },
+     "required": [
+      "title",
+      "hook",
+      "angle",
+      "whyNow",
+      "format",
+      "demand",
+      "competition",
+      "evergreen",
+      "signals"
+     ]
+    }
+   }
+  },
+  "required": [
+   "topics"
+  ]
+ },
+ "scriptSchema": {
+  "type": "object",
+  "properties": {
+   "title": {
+    "type": "string"
+   },
+   "hook": {
+    "type": "string",
+    "description": "On-screen hook text for the first 2.5 seconds, max 6 words, no emojis"
+   },
+   "format": {
+    "type": "string",
+    "enum": [
+     "news60",
+     "explainer",
+     "tool",
+     "myth",
+     "list",
+     "future"
+    ]
+   },
+   "scenes": {
+    "type": "array",
+    "minItems": 4,
+    "maxItems": 7,
+    "items": {
+     "type": "object",
+     "properties": {
+      "narration": {
+       "type": "string",
+       "description": "Spoken text for this scene, 1–3 short sentences. Write numbers the way they should be spoken."
+      },
+      "visual": {
+       "type": "string",
+       "description": "Prompt for the AI video generator: one continuous cinematic shot, symbolic, no text, no real people or logos"
+      }
+     },
+     "required": [
+      "narration",
+      "visual"
+     ]
+    }
+   },
+   "caption": {
+    "type": "string",
+    "description": "Instagram caption: 2–4 short lines, value first, ends with a question to the viewer. No hashtags here."
+   },
+   "hashtags": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "minItems": 4,
+    "maxItems": 8
+   },
+   "claims": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "Every factual claim made in the narration, one per item"
+   },
+   "sources": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "title": {
+       "type": "string"
+      },
+      "url": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "title",
+      "url"
+     ]
+    }
+   },
+   "why": {
+    "type": "string",
+    "description": "GERMAN: one sentence why this script should perform"
+   }
+  },
+  "required": [
+   "title",
+   "hook",
+   "format",
+   "scenes",
+   "caption",
+   "hashtags",
+   "claims",
+   "sources",
+   "why"
+  ]
+ },
+ "factcheckSchema": {
+  "type": "object",
+  "properties": {
+   "pass": {
+    "type": "boolean",
+    "description": "true if no serious problem remains after your fixes"
+   },
+   "summary": {
+    "type": "string",
+    "description": "GERMAN: one or two sentences"
+   },
+   "issues": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "scene": {
+       "type": "integer",
+       "description": "Scene index (0-based), -1 for caption"
+      },
+      "claim": {
+       "type": "string"
+      },
+      "problem": {
+       "type": "string",
+       "description": "GERMAN"
+      },
+      "severity": {
+       "type": "string",
+       "enum": [
+        "hoch",
+        "mittel",
+        "niedrig"
+       ]
+      },
+      "fixedNarration": {
+       "type": "string",
+       "description": "Full corrected narration for that scene, or empty if no safe fix exists"
+      }
+     },
+     "required": [
+      "scene",
+      "claim",
+      "problem",
+      "severity",
+      "fixedNarration"
+     ]
+    }
+   }
+  },
+  "required": [
+   "pass",
+   "summary",
+   "issues"
+  ]
+ }
+}

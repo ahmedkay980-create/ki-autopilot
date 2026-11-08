@@ -23,7 +23,7 @@ const DEFAULT_CONFIG = {
   video: {
     mode: 'premium', // 'premium' = KI-Videoszenen, 'sparsam' = animierte Grafik
     falKey: '',
-    model: 'fal-ai/veo3/fast',
+    model: 'fal-ai/veo3.1/fast',
     pricePerSecond: 0.10,
     clipSeconds: 6,
     durationFormat: 's', // 's' → "6s", 'plain' → "6"
