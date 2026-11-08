@@ -1,0 +1,32 @@
+#cloud-config
+# KI-Autopilot – beim Erstellen des Hetzner-Servers unter „Cloud config“ komplett einfügen.
+# NUR die Zeile mit dem Passwort ändern: mindestens 12 Zeichen, nur Buchstaben und Zahlen.
+write_files:
+  - path: /root/ki-autopilot-passwort
+    permissions: '0600'
+    content: |
+      HierDeinPasswort2026
+  - path: /root/ki-autopilot-setup.sh
+    permissions: '0700'
+    content: |
+      #!/bin/bash
+      set -e
+      REPO=https://github.com/ahmedkay980-create/ki-autopilot.git
+      systemctl enable --now docker
+      [ -d /opt/ki-autopilot ] || git clone --depth 50 "$REPO" /opt/ki-autopilot
+      IP=$(curl -fsS http://169.254.169.254/hetzner/v1/metadata/public-ipv4 || curl -fsS https://api.ipify.org)
+      DOMAIN="$(echo "$IP" | tr . -).sslip.io"
+      PW=$(head -n1 /root/ki-autopilot-passwort | tr -d '[:space:]')
+      printf 'APP_PASSWORD=%s\nDOMAIN=%s\n' "$PW" "$DOMAIN" > /opt/ki-autopilot/.env
+      chmod 600 /opt/ki-autopilot/.env
+      cd /opt/ki-autopilot && docker compose up -d --build
+      echo '30 3 * * * root /opt/ki-autopilot/deploy/update.sh >> /var/log/ki-autopilot-update.log 2>&1' > /etc/cron.d/ki-autopilot
+      echo "KI-Autopilot: https://$DOMAIN" > /etc/motd
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - curl
+runcmd:
+  - [bash, /root/ki-autopilot-setup.sh]

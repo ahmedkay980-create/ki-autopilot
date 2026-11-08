@@ -1,0 +1,6 @@
+data
+test
+.git
+.env
+*.md
+deploy/hetzner-cloud-config.yaml
