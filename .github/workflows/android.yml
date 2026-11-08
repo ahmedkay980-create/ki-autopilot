@@ -57,18 +57,6 @@ jobs:
           name: KI-Autopilot-apk
           path: KI-Autopilot.apk
 
-      - name: Release veröffentlichen
-        if: github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: KI-Autopilot 1.0.${{ github.run_number }}
-          body: |
-            Neue Version der App. Auf dem Handy öffnen, APK laden, installieren – Einstellungen bleiben erhalten.
-            Commit: ${{ github.sha }}
-          files: KI-Autopilot.apk
-          make_latest: true
-
   smoke:
     needs: apk
     runs-on: ubuntu-latest
@@ -105,3 +93,22 @@ jobs:
             smoke.png
             ui.xml
           if-no-files-found: ignore
+
+  release:
+    needs: [apk, smoke]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: KI-Autopilot-apk
+      - name: Release veröffentlichen (erst nach bestandenem Emulator-Test)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: KI-Autopilot 1.0.${{ github.run_number }}
+          body: |
+            Neue Version der App (im Android-Emulator getestet). Auf dem Handy öffnen, APK laden, installieren – Einstellungen bleiben erhalten.
+            Commit: ${{ github.sha }}
+          files: KI-Autopilot.apk
+          make_latest: true
