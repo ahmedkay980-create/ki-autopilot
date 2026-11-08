@@ -374,7 +374,13 @@ class Engine private constructor(val ctx: Context) {
             val narr = scenes.map { it.s("narration").trim() }
             val vr = voice.synthesize(narr.joinToString(" "))
             addCost("voice", vr.costUsd)
-            val url = fal.upload(vr.audio, null, vr.mime, "voice-$id.${vr.ext}")
+            val url = try {
+                fal.upload(vr.audio, null, vr.mime, "voice-$id.${vr.ext}")
+            } catch (ex: UserError) {
+                // Ersatzweg: Audio direkt mitschicken (fal.ai akzeptiert Data-URIs)
+                hist(v, "Dateispeicher nicht erreichbar (" + (ex.message ?: "") + ") – sende die Stimme direkt mit")
+                "data:" + vr.mime + ";base64," + android.util.Base64.encodeToString(vr.audio, android.util.Base64.NO_WRAP)
+            }
             val spans = voice.sceneSpans(narr, vr.words, vr.durationS)
             val shots = planShots(scenes, spans)
             store.edit {
@@ -923,8 +929,17 @@ class Engine private constructor(val ctx: Context) {
             "Claude antwortet ✓"
         }
         "fal" -> {
-            fal.upload("ok".toByteArray(), null, "text/plain", "test.txt")
-            "fal.ai-Schlüssel funktioniert ✓"
+            try {
+                fal.upload("ok".toByteArray(), null, "text/plain", "test.txt")
+                "fal.ai-Schlüssel funktioniert ✓"
+            } catch (ex: UserError) {
+                val r = Http.request(
+                    "GET", "https://queue.fal.run/fal-ai/veo3.1/fast/requests/00000000-0000-0000-0000-000000000000/status",
+                    mapOf("Authorization" to "Key " + cfg("video").s("falKey")),
+                )
+                if (r.code == 401 || r.code == 403) throw UserError("fal.ai lehnt den Schlüssel ab.")
+                "fal.ai-Schlüssel funktioniert ✓ (Dateispeicher nicht erreichbar – die App nutzt dann den Ersatzweg)"
+            }
         }
         "voice" -> {
             val v = cfg("voice")

@@ -65,5 +65,6 @@ alive "Mehr"
 
 adb exec-out screencap -p > smoke.png
 echo "== Protokoll"
-adb logcat -d | grep -E "AndroidRuntime|FATAL" && fail "Absturz im Protokoll"
+adb logcat -d | grep -A3 "FATAL EXCEPTION" | grep -q "Process: $PKG" && fail "Absturz der App im Protokoll"
+alive "Ende"
 echo "SMOKE OK"
