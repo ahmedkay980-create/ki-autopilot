@@ -109,7 +109,7 @@ Die Meta-App kann im Entwicklungsmodus bleiben, solange nur dein eigenes Konto v
 ## Gut zu wissen
 
 - **Sicherheitsnetz Faktencheck:** Findet das Prüfmodell eine erfundene oder falsche Aussage, die es nicht selbst korrigieren kann, hält die App vor dem teuren Teil an. Du bekommst dann eine Push-Nachricht „Kurz prüfen“. Ein Tipp auf „Trotzdem freigeben“, und es geht weiter. Abschalten kannst du das unter Betrieb.
-- **Kennzeichnung:** Jede Caption endet mit „Visuals and voice are AI-generated.“ und nennt die Quellen. Meta verlangt die Kennzeichnung realistischer KI-Inhalte.
+- **Kennzeichnung:** Jede Caption enthält „Visuals and voice are AI-generated.“ und nennt die Quellen. Meta verlangt die Kennzeichnung realistischer KI-Inhalte.
 - **Originalität:** Instagram drückt gleichförmige Massenware. Die App wechselt deshalb sechs Formate (News in 60 s, Erklärt, KI-Werkzeug, Mythos vs. Fakt, Top 3, Was es für dich heißt) und lernt aus deinen Zahlen. Formate, die schlecht laufen, kommen seltener.
 - **TikTok und YouTube Shorts:** Beide lassen automatische Uploads neuer Apps erst nach einer Prüfung öffentlich zu. Bis dahin: Studio → **Teilen** → TikTok- oder YouTube-App wählen. Das Video ist fertig und muss nur noch hochgeladen werden.
 - **Musik:** Es gibt keine Hintergrundmusik, denn lizenzierte Instagram-Musik geht über die Schnittstelle nicht. Die Stimme trägt das Video.
