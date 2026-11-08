@@ -40,7 +40,7 @@ test('YouTube: Short hochladen (fortsetzbar), KI-Kennzeichnung gesetzt, Instagra
   assert.equal(v.status, 'online');
   assert.equal(v.youtube.id, 'yt123');
   assert.equal(v.youtube.restricted, true, 'öffentlich angefragt, privat erhalten → Projekt ungeprüft');
-  assert.ok(engine.db.notifications.some((n) => /Instagram: „AI now thinks for minutes“ konnte dort nicht veröffentlicht werden/.test(n.text)));
+  assert.ok(engine.db.notifications.some((n) => /Instagram: „AI now thinks for minutes“ konnte dort nicht hochgeladen werden/.test(n.text)));
 });
 
 test('YouTube-Anmeldung: Zustand wird geprüft, Kanal übernommen', async () => {

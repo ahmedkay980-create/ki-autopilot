@@ -12,7 +12,7 @@ const DEFAULT_CONFIG = {
   },
   autopilot: true, // Zeitplaner an
   dryRun: true, // nichts wird wirklich gepostet
-  autoPost: true, // fertige Videos automatisch posten
+  autoPost: false, // false = fertiges Video wartet auf dein „OK“, dann sofort überall hochladen
   postTiming: 'slot', // 'slot' = nächster Sendeplatz, 'sofort'
   slots: ['12:00', '19:00'], // Wanduhrzeit der Zielgruppe
   autoProduce: { enabled: false, at: '08:00' }, // Vollautomatik: täglich das Top-Thema produzieren
@@ -52,6 +52,7 @@ const DEFAULT_CONFIG = {
   },
   instagram: { token: '', appSecret: '', tokenRefreshed: null, tokenExpires: null, userId: '', username: '', apiVersion: 'v27.0', shareToFeed: true },
   youtube: { enabled: true, clientId: '', clientSecret: '', refreshToken: '', channelId: '', channelTitle: '', privacy: 'public' },
+  tiktok: { enabled: true, clientKey: '', clientSecret: '', refreshToken: '', openId: '', username: '', mode: 'entwurf', privacy: 'PUBLIC_TO_EVERYONE' },
   github: { repo: 'ahmedkay980-create/ki-autopilot', token: '' },
   publicUrl: '',
   push: { publicKey: '', privateKey: '', subject: 'mailto:autopilot@example.com' },
@@ -61,7 +62,7 @@ const DEFAULT_CONFIG = {
 const SECRET_PATHS = [
   'anthropic.apiKey', 'video.falKey', 'voice.elevenKey', 'voice.openaiKey', 'trends.youtubeKey',
   'instagram.token', 'instagram.appSecret', 'push.privateKey', 'auth.passwordHash',
-  'youtube.clientSecret', 'youtube.refreshToken', 'github.token',
+  'youtube.clientSecret', 'youtube.refreshToken', 'github.token', 'tiktok.clientSecret', 'tiktok.refreshToken',
 ];
 
 const get = (obj, p) => p.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);

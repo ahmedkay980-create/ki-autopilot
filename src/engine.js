@@ -9,6 +9,7 @@ const { DEFAULT_CONFIG, DEFAULT_DB, withDefaults } = require('./config');
 const { ClaudeClient } = require('./claude');
 const { InstagramClient } = require('./instagram');
 const { YouTubeClient } = require('./youtube');
+const { TikTokClient } = require('./tiktok');
 const { GitHubClient, scrub } = require('./github');
 const { Agents } = require('./agents');
 const trends = require('./trends');
@@ -19,7 +20,7 @@ const M = require('./metrics');
 const webpush = require('./webpush');
 const { hashPassword } = require('./auth');
 
-const ACTIVE = ['wartet', 'recherche', 'skript', 'faktencheck', 'stimme', 'szenen', 'schnitt'];
+const ACTIVE = ['analyse', 'wartet', 'recherche', 'skript', 'faktencheck', 'stimme', 'szenen', 'schnitt'];
 class StopError extends Error {}
 
 /** Fehler verständlich machen und erkennen, ob ein späterer neuer Versuch Sinn hat. */
@@ -54,6 +55,10 @@ class Engine {
     this.ig = new InstagramClient({ getConfig, fetchImpl: this.fetch, sleepImpl: this.sleep, log: (l, m) => this.log(l, m) });
     this.agents = new Agents({ claude: this.claude, getConfig, getLearnings: () => this.db.learnings });
     this.yt = new YouTubeClient({ getConfig, fetchImpl: this.fetch, clock: () => this.now() });
+    this.tt = new TikTokClient({
+      getConfig, fetchImpl: this.fetch, clock: () => this.now(), sleepImpl: this.sleep,
+      onRefreshToken: (t) => { const c = structuredClone(this.cfg); c.tiktok.refreshToken = t; this.saveConfig(c); },
+    });
     this.gh = new GitHubClient({ getConfig, fetchImpl: this.fetch });
 
     this.queue = [];
@@ -85,7 +90,12 @@ class Engine {
 
   /** Nach einem Neustart unterbrochene Produktionen fortsetzen (fertige Schritte werden übersprungen). */
   start() {
-    for (const v of this.db.videos) if (ACTIVE.includes(v.status)) { this.hist(v, 'Nach Neustart fortgesetzt'); this.enqueue(v.id); }
+    for (const v of this.db.videos) {
+      if (!ACTIVE.includes(v.status)) continue;
+      this.hist(v, 'Nach Neustart fortgesetzt');
+      if (v.status === 'analyse' || !v.topicId) this.runOneClick(v);
+      else this.enqueue(v.id);
+    }
   }
 
   log(level, msg) {
@@ -95,12 +105,12 @@ class Engine {
 
   hist(v, event) { this.store.update(() => { (v.history = v.history || []).push({ at: this.nowIso(), event }); v.updatedAt = this.nowIso(); }); }
 
-  notify(text, { videoId, title = 'Autopilot', url } = {}) {
+  notify(text, { videoId, title = 'Autopilot', url, actions } = {}) {
     this.store.update((db) => {
       db.notifications.unshift({ id: U.uid('n_'), at: this.nowIso(), text, videoId: videoId || null, read: false });
       db.notifications.length = Math.min(db.notifications.length, 200);
     });
-    this.pushAll({ title, body: text, url: url || (videoId ? `/#studio/${videoId}` : '/'), tag: videoId || 'autopilot' }).catch(() => {});
+    this.pushAll({ title, body: text, url: url || (videoId ? `/#studio/${videoId}` : '/'), tag: videoId || 'autopilot', videoId: videoId || null, actions: actions || [] }).catch(() => {});
   }
 
   addCost(kind, usd) {
@@ -220,6 +230,52 @@ class Engine {
   }
 
   // ---------- Produktion ----------
+  /** Ein Knopf: Markt analysieren, bestes Thema wählen, Video komplett produzieren. */
+  oneClick({ auto = false } = {}) {
+    if (!this.claude.ready) throw new Error('Claude-Schlüssel fehlt (Mehr → Claude).');
+    if (this.db.videos.some((v) => v.status === 'analyse')) throw new Error('Läuft schon – schau in die Karte „Gerade“.');
+    this.checkBudget(this.estimate());
+    const v = {
+      id: U.uid('v_'), topicId: null, title: 'Neues Video', format: null, status: 'analyse', auto, oneClick: true,
+      createdAt: this.nowIso(), updatedAt: this.nowIso(), history: [{ at: this.nowIso(), event: auto ? 'Vollautomatik gestartet' : 'Ein-Knopf gestartet' }],
+    };
+    this.store.update((db) => { db.videos.unshift(v); });
+    this.runOneClick(v);
+    return v;
+  }
+
+  runOneClick(v) {
+    const job = (async () => {
+      this.setStatus(v, 'analyse', { error: undefined });
+      try {
+        const lastRadar = this.db.radar.lastRun ? Date.parse(this.db.radar.lastRun) : 0;
+        const fresh = () => this.db.topics.filter((t) => t.status === 'neu').sort((a, b) => b.score - a.score);
+        if (!fresh().length || this.now() - lastRadar > U.hours(6)) {
+          this.hist(v, 'Analysiert den Markt (YouTube, Hacker News, Reddit, News)');
+          const res = await this.jobRadar();
+          this.store.update((db) => { db.jobs.radar = { ...(db.jobs.radar || {}), lastRun: this.nowIso(), ok: true, result: res }; });
+        }
+        const top = fresh()[0];
+        if (!top) throw new Error('Der Radar hat gerade kein passendes Thema gefunden. In einer Stunde nochmal versuchen.');
+        this.store.update(() => {
+          Object.assign(v, { topicId: top.id, title: top.title, format: top.format });
+          top.status = 'in-produktion';
+          top.videoId = v.id;
+        });
+        this.hist(v, `Thema gewählt (Nachfrage ${top.demand ?? '–'}): ${top.title}`);
+        this.setStatus(v, 'wartet');
+        this.enqueue(v.id);
+      } catch (e) {
+        const f = friendly(e);
+        this.setStatus(v, 'fehler', { error: f.text, retryable: f.retryable });
+        this.hist(v, 'Fehler: ' + e.message);
+        this.notify(`Ein-Knopf: ${f.text}`, { videoId: v.id, title: 'Fehler' });
+      }
+    })();
+    this.oneClickJob = job;
+    return job;
+  }
+
   produce(topicId, { auto = false } = {}) {
     const t = this.topic(topicId);
     if (!t) throw new Error('Thema nicht gefunden.');
@@ -256,7 +312,10 @@ class Engine {
   }
 
   /** Wartet, bis die Warteschlange leer ist (für Tests). */
-  async idle() { while (this.working) await this.working; }
+  async idle() {
+    if (this.oneClickJob) await this.oneClickJob;
+    while (this.working) await this.working;
+  }
 
   setStatus(v, status, extra = {}) {
     this.store.update(() => { Object.assign(v, extra); v.status = status; v.updatedAt = this.nowIso(); });
@@ -359,7 +418,10 @@ class Engine {
         this.notify(`Fertig: „${v.title}“. Geht ${this.fmtAt(at)} online${cfg.dryRun ? ' (Trockenlauf)' : ''}.`, { videoId: v.id, title: 'Video fertig' });
       } else {
         this.setStatus(v, 'fertig');
-        this.notify(`Fertig: „${v.title}“. Wartet auf deinen Tipp auf „Posten“.`, { videoId: v.id, title: 'Video fertig' });
+        const where = this.targets().map((t) => ({ instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube' }[t])).join(', ');
+        this.notify(`Fertig: „${v.title}“. Ansehen und mit OK sofort hochladen${where ? ' auf ' + where : ''}.`, {
+          videoId: v.id, title: 'Video fertig – bitte OK', actions: [{ action: 'post', title: 'OK – hochladen' }, { action: 'open', title: 'Ansehen' }],
+        });
       }
     } catch (e) {
       if (e instanceof StopError || e.message === 'gestoppt') {
@@ -426,6 +488,7 @@ class Engine {
   retry(id) {
     const v = this.video(id);
     if (!v) throw new Error('Video nicht gefunden.');
+    if (!v.topicId) { this.runOneClick(v); return v; }
     if (v.render && !v.published) {
       this.setStatus(v, 'geplant', { schedule: { at: this.nowIso() }, error: undefined });
       return v;
@@ -466,7 +529,9 @@ class Engine {
   postNow(id) {
     const v = this.video(id);
     if (!v || !v.render) throw new Error('Das Video ist noch nicht fertig.');
-    if (v.published) throw new Error('Schon veröffentlicht.');
+    const open = this.targets().filter((t) => !(v.platforms && v.platforms[t] && v.platforms[t].status === 'ok'));
+    if (v.published && !v.published.dryRun && !open.length) throw new Error('Schon überall veröffentlicht.');
+    if (v.published && v.published.dryRun) this.store.update(() => { delete v.published; });
     this.setStatus(v, 'geplant', { schedule: { at: this.nowIso() } });
     this.publish(id).catch(() => {});
     return v;
@@ -508,51 +573,85 @@ class Engine {
     return `${local} Uhr`;
   }
 
+  /** Verbundene Plattformen in fester Reihenfolge. */
+  targets() {
+    return [['instagram', this.ig.ready], ['tiktok', this.tt.ready], ['youtube', this.yt.ready]].filter(([, ok]) => ok).map(([k]) => k);
+  }
+
+  async publishTo(target, v, file) {
+    if (target === 'instagram') {
+      const base = this.publicUrl();
+      if (!base.startsWith('https://')) throw new Error('Öffentliche HTTPS-Adresse des Servers fehlt (Einstellungen → Server).');
+      const r = await this.ig.publishReel({
+        videoUrl: `${base}/v/${v.render.token}/${v.render.file}`, caption: this.composeCaption(v), shareToFeed: this.cfg.instagram.shareToFeed, thumbOffsetMs: 1200,
+        onStep: (m) => this.hist(v, 'Instagram: ' + m),
+      });
+      return { mediaId: r.mediaId, url: r.permalink, at: r.timestamp ? new Date(r.timestamp).toISOString() : this.nowIso() };
+    }
+    if (target === 'youtube') {
+      const r = await this.yt.upload({ file, title: v.title, description: this.composeCaption(v) + '\n\n#Shorts', tags: (v.script && v.script.hashtags) || [], privacy: this.cfg.youtube.privacy });
+      return { id: r.id, url: r.url, privacy: r.privacy, restricted: r.restricted, at: this.nowIso() };
+    }
+    if (target === 'tiktok') {
+      const r = await this.tt.upload({ file, caption: this.composeCaption(v), mode: this.cfg.tiktok.mode, privacy: this.cfg.tiktok.privacy });
+      return { publishId: r.publishId, url: r.url, draft: r.draft, privacy: r.privacy, at: this.nowIso() };
+    }
+    throw new Error('Unbekannte Plattform: ' + target);
+  }
+
+  /** Auf allen verbundenen Plattformen gleichzeitig veröffentlichen. Bereits erfolgreiche werden übersprungen. */
   async publish(id) {
     const v = this.video(id);
     if (!v || this.busy.has('pub:' + id)) return v;
     this.busy.add('pub:' + id);
+    const NAME = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube' };
     try {
       this.setStatus(v, 'postet');
       if (this.cfg.dryRun) {
         this.setStatus(v, 'online', { published: { at: this.nowIso(), dryRun: true } });
         this.hist(v, 'Trockenlauf: wäre jetzt gepostet worden');
-        this.notify(`Trockenlauf: „${v.title}“ wäre jetzt online gegangen.`, { videoId: v.id });
+        this.notify(`Trockenlauf: „${v.title}“ wäre jetzt auf ${this.targets().map((t) => NAME[t]).join(', ') || 'deinen Kanälen'} online gegangen.`, { videoId: v.id });
         return v;
       }
-      if (!this.ig.ready && !this.yt.ready) throw new Error('Weder Instagram noch YouTube ist verbunden (Einstellungen).');
+      const targets = this.targets();
+      if (!targets.length) throw new Error('Kein Kanal verbunden. Mehr → Instagram, TikTok oder YouTube verbinden.');
       const file = v.render && path.join(this.vdir(v), v.render.file);
       if (!file || !fs.existsSync(file)) throw new Error('Videodatei fehlt.');
-      const errors = [];
-      let ig = null;
-      let yt = v.youtube && v.youtube.id ? v.youtube : null;
-      if (this.ig.ready && !(v.published && v.published.mediaId)) {
-        try {
-          const base = this.publicUrl();
-          if (!base.startsWith('https://')) throw new Error('Öffentliche HTTPS-Adresse des Servers fehlt (Einstellungen → Server).');
-          ig = await this.ig.publishReel({
-            videoUrl: `${base}/v/${v.render.token}/${v.render.file}`, caption: this.composeCaption(v), shareToFeed: this.cfg.instagram.shareToFeed, thumbOffsetMs: 1200,
-            onStep: (m) => this.hist(v, m),
-          });
-          this.hist(v, 'Auf Instagram veröffentlicht');
-        } catch (e) { errors.push({ where: 'Instagram', e }); }
-      }
-      if (this.yt.ready && !yt) {
-        try {
-          yt = await this.yt.upload({ file, title: v.title, description: this.composeCaption(v) + '\n\n#Shorts', tags: (v.script && v.script.hashtags) || [], privacy: this.cfg.youtube.privacy });
-          yt.at = this.nowIso();
-          this.hist(v, `Auf YouTube hochgeladen (${yt.privacy})`);
-        } catch (e) { errors.push({ where: 'YouTube', e }); }
-      }
-      if (!ig && !yt && !(v.published && v.published.mediaId)) throw errors[0] ? new Error(errors.map((x) => `${x.where}: ${x.e.message}`).join(' · ')) : new Error('Nichts veröffentlicht.');
-      const published = ig ? { at: ig.timestamp ? new Date(ig.timestamp).toISOString() : this.nowIso(), mediaId: ig.mediaId, permalink: ig.permalink } : v.published || { at: this.nowIso(), youtubeOnly: true };
-      this.setStatus(v, 'online', { published, youtube: yt || undefined, error: undefined });
-      const where = [ig || (v.published && v.published.mediaId) ? 'Instagram' : null, yt ? 'YouTube' : null].filter(Boolean).join(' und ');
-      this.notify(`Online auf ${where}: „${v.title}“${yt && yt.restricted ? ' (YouTube vorerst privat, siehe Einstellungen)' : ''}`, { videoId: v.id, title: 'Veröffentlicht', url: (ig && ig.permalink) || (yt && yt.url) || undefined });
-      for (const x of errors) {
-        this.hist(v, `${x.where} fehlgeschlagen: ${x.e.message}`);
-        this.notify(`${x.where}: „${v.title}“ konnte dort nicht veröffentlicht werden – ${friendly(x.e).text}`, { videoId: v.id, title: 'Teilweise veröffentlicht' });
-        this.reportProblem({ where: `Veröffentlichen auf ${x.where}`, message: x.e.message, stack: x.e.stack });
+      const plat = { ...(v.platforms || {}) };
+      const todo = targets.filter((t) => !(plat[t] && plat[t].status === 'ok'));
+      this.store.update(() => { for (const t of todo) plat[t] = { status: 'läuft', at: this.nowIso() }; v.platforms = plat; });
+      this.hist(v, `Lädt hoch: ${todo.map((t) => NAME[t]).join(', ')}`);
+      const results = await Promise.allSettled(todo.map((t) => this.publishTo(t, v, file)));
+      const failed = [];
+      this.store.update(() => {
+        results.forEach((r, i) => {
+          const t = todo[i];
+          if (r.status === 'fulfilled') plat[t] = { status: 'ok', ...r.value };
+          else { plat[t] = { status: 'fehler', error: friendly(r.reason).text, raw: r.reason.message, at: this.nowIso() }; failed.push({ t, e: r.reason }); }
+        });
+        v.platforms = plat;
+        if (plat.youtube && plat.youtube.status === 'ok') v.youtube = { ...(v.youtube || {}), ...plat.youtube };
+        if (plat.tiktok && plat.tiktok.status === 'ok') v.tiktok = plat.tiktok;
+      });
+      const okList = Object.keys(plat).filter((k) => plat[k].status === 'ok');
+      if (!okList.length) throw new Error(failed.map((x) => `${NAME[x.t]}: ${x.e.message}`).join(' · '));
+      const ig = plat.instagram && plat.instagram.status === 'ok' ? plat.instagram : null;
+      const firstAt = okList.map((k) => plat[k].at).sort()[0];
+      this.setStatus(v, 'online', {
+        published: { at: (v.published && v.published.at) || firstAt, mediaId: ig ? ig.mediaId : undefined, permalink: ig ? ig.url : undefined },
+        error: failed.length ? `Nicht hochgeladen: ${failed.map((x) => NAME[x.t]).join(', ')}` : undefined,
+      });
+      for (const t of okList) if (todo.includes(t)) this.hist(v, `${NAME[t]}: ${t === 'tiktok' && plat[t].draft ? 'liegt im TikTok-Postfach' : 'online'}${plat[t].privacy && plat[t].privacy !== 'public' && plat[t].privacy !== 'PUBLIC_TO_EVERYONE' ? ` (${plat[t].privacy})` : ''}`);
+      const extras = [];
+      if (plat.tiktok && plat.tiktok.draft && todo.includes('tiktok')) extras.push('TikTok: in der TikTok-App auf die Benachrichtigung tippen und posten');
+      if (plat.youtube && plat.youtube.restricted && todo.includes('youtube')) extras.push('YouTube vorerst privat (Google-Prüfung)');
+      this.notify(`Online auf ${okList.map((k) => NAME[k]).join(', ')}: „${v.title}“${extras.length ? '. ' + extras.join('. ') : ''}`, {
+        videoId: v.id, title: 'Veröffentlicht', url: (ig && ig.url) || (plat.youtube && plat.youtube.url) || undefined,
+      });
+      for (const x of failed) {
+        this.hist(v, `${NAME[x.t]} fehlgeschlagen: ${x.e.message}`);
+        this.notify(`${NAME[x.t]}: „${v.title}“ konnte dort nicht hochgeladen werden – ${friendly(x.e).text}`, { videoId: v.id, title: 'Teilweise veröffentlicht' });
+        this.reportProblem({ where: `Veröffentlichen auf ${NAME[x.t]}`, message: x.e.message, stack: x.e.stack });
       }
       return v;
     } catch (e) {
@@ -603,13 +702,9 @@ class Engine {
     if (!cfg.autoProduce.enabled) return 'Vollautomatik aus';
     const today = U.isoDate(this.now());
     if (this.db.videos.some((v) => v.auto && U.isoDate(v.createdAt) === today)) return 'heute schon produziert';
-    const best = () => this.db.topics.filter((t) => t.status === 'neu').sort((a, b) => b.score - a.score)[0];
-    const lastRadar = this.db.radar.lastRun ? Date.parse(this.db.radar.lastRun) : 0;
-    if (!best() || this.now() - lastRadar > U.hours(20)) await this.jobRadar();
-    const top = best();
-    if (!top) return 'kein Thema gefunden';
-    this.produce(top.id, { auto: true });
-    return `produziere: ${top.title}`;
+    const v = this.oneClick({ auto: true });
+    await this.oneClickJob;
+    return v.topicId ? `produziere: ${v.title}` : 'kein Thema gefunden';
   }
 
   async jobInsights() {
@@ -846,19 +941,43 @@ class Engine {
     return { ok: true };
   }
 
+  // ---------- TikTok-Anmeldung ----------
+  tiktokAuthUrl() {
+    const base = this.publicUrl();
+    if (!base.startsWith('https://')) throw new Error('Die öffentliche HTTPS-Adresse des Servers fehlt noch.');
+    if (!this.tt.configured) throw new Error('Erst Client Key und Client Secret von TikTok eintragen und speichern.');
+    const state = U.token(16);
+    this.store.update((db) => { db.oauthState = { state, at: this.nowIso(), provider: 'tiktok' }; });
+    return this.tt.authUrl(base, state);
+  }
+
+  async tiktokCallback({ code, state }) {
+    const st = this.db.oauthState;
+    if (!st || st.state !== state || st.provider !== 'tiktok' || this.now() - Date.parse(st.at) > U.hours(1)) throw new Error('Anmeldung abgelaufen. Bitte in der App erneut „Mit TikTok verbinden“ tippen.');
+    const tok = await this.tt.exchange(code, this.publicUrl());
+    let user = { openId: tok.open_id, name: '', username: '' };
+    try { user = await this.tt.user(tok.access_token); } catch (e) { this.log('warn', 'TikTok-Profil: ' + e.message); }
+    const c = structuredClone(this.cfg);
+    Object.assign(c.tiktok, { refreshToken: tok.refresh_token, openId: user.openId || tok.open_id, username: user.username || user.name || '', enabled: true });
+    this.saveConfig(c);
+    this.store.update((db) => { db.oauthState = null; });
+    this.log('info', `TikTok verbunden: ${user.username || user.name || user.openId}`);
+    return user;
+  }
+
   // ---------- YouTube-Anmeldung ----------
   youtubeAuthUrl() {
     const base = this.publicUrl();
     if (!base.startsWith('https://')) throw new Error('Die öffentliche HTTPS-Adresse des Servers fehlt noch.');
     if (!this.yt.configured) throw new Error('Erst Client-ID und Client-Geheimnis von Google eintragen und speichern.');
     const state = U.token(16);
-    this.store.update((db) => { db.oauthState = { state, at: this.nowIso() }; });
+    this.store.update((db) => { db.oauthState = { state, at: this.nowIso(), provider: 'youtube' }; });
     return this.yt.authUrl(base, state);
   }
 
   async youtubeCallback({ code, state }) {
     const st = this.db.oauthState;
-    if (!st || st.state !== state || this.now() - Date.parse(st.at) > U.hours(1)) throw new Error('Anmeldung abgelaufen. Bitte in der App erneut „Mit YouTube verbinden“ tippen.');
+    if (!st || st.state !== state || st.provider !== 'youtube' || this.now() - Date.parse(st.at) > U.hours(1)) throw new Error('Anmeldung abgelaufen. Bitte in der App erneut „Mit YouTube verbinden“ tippen.');
     const tok = await this.yt.exchange(code, this.publicUrl());
     const ch = await this.yt.channel(tok.access_token);
     const c = structuredClone(this.cfg);
@@ -919,6 +1038,10 @@ class Engine {
       const r = await trends.youtube({ key: cfg.trends.youtubeKey, keywords: ['AI'], fetch: this.fetch, now: this.now().getTime() });
       if (r.skipped) throw new Error('Kein YouTube-Schlüssel hinterlegt.');
       return `YouTube funktioniert (${r.items.length} Videos gefunden).`;
+    }
+    if (name === 'tiktok') {
+      const info = await this.tt.creatorInfo();
+      return `TikTok verbunden: ${info.creator_nickname || info.creator_username || 'Konto'} · erlaubte Sichtbarkeit: ${(info.privacy_level_options || []).join(', ') || 'keine Angabe'}`;
     }
     if (name === 'yt') {
       const ch = await this.yt.channel();

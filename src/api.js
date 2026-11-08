@@ -82,6 +82,8 @@ function buildState(engine, scheduler) {
       autopilot: cfg.autopilot, dryRun: cfg.dryRun, autoPost: cfg.autoPost,
       claude: engine.claude.ready, fal: Boolean(cfg.video.falKey), voice: Boolean(cfg.voice.provider === 'openai' ? cfg.voice.openaiKey : cfg.voice.elevenKey),
       instagram: engine.ig.ready, youtubeKey: Boolean(cfg.trends.youtubeKey), publicUrl: engine.publicUrl(),
+      tiktok: engine.tt.ready, ttConfigured: engine.tt.configured, ttUser: cfg.tiktok.username, ttRedirect: engine.publicUrl() ? engine.publicUrl() + '/oauth/tiktok' : '',
+      targets: engine.targets(),
       yt: engine.yt.ready, ytConfigured: engine.yt.configured, ytChannel: cfg.youtube.channelTitle, ytRedirect: engine.publicUrl() ? engine.publicUrl() + '/oauth/youtube' : '',
       github: engine.gh.canWrite,
       pushKey: cfg.push.publicKey, pushDevices: (db.pushSubs || []).length,
@@ -143,6 +145,9 @@ function createHandler(engine, scheduler, { open = false } = {}) {
     ['POST', /^\/api\/test\/(\w+)$/, async (m) => ({ text: await engine.testService(m[1]) })],
     ['GET', /^\/api\/voices$/, async () => ({ voices: await voice.listVoices({ cfg: engine.cfg, fetch: engine.fetch }) })],
     ['POST', /^\/api\/instagram\/connect$/, async (m, b) => engine.connectInstagram(b)],
+    ['POST', /^\/api\/oneclick$/, () => slimVideo(engine.oneClick())],
+    ['GET', /^\/api\/tiktok\/auth-url$/, () => ({ url: engine.tiktokAuthUrl() })],
+    ['POST', /^\/api\/tiktok\/disconnect$/, () => { const c = structuredClone(engine.cfg); c.tiktok.refreshToken = ''; c.tiktok.openId = ''; c.tiktok.username = ''; engine.saveConfig(c); return { ok: true }; }],
     ['GET', /^\/api\/youtube\/auth-url$/, () => ({ url: engine.youtubeAuthUrl() })],
     ['POST', /^\/api\/youtube\/disconnect$/, () => { const c = structuredClone(engine.cfg); c.youtube.refreshToken = ''; c.youtube.channelId = ''; c.youtube.channelTitle = ''; engine.saveConfig(c); return { ok: true }; }],
     ['POST', /^\/api\/update$/, () => engine.requestUpdate()],
@@ -163,15 +168,18 @@ function createHandler(engine, scheduler, { open = false } = {}) {
         return serveFile(req, res, path.join(engine.vdir(v), m[2]));
       }
 
-      if (p === '/oauth/youtube' && method === 'GET') {
+      if ((p === '/oauth/youtube' || p === '/oauth/tiktok') && method === 'GET') {
         if (!authed(req)) return send(res, 302, '', { location: '/' });
         const page = (title, text) => send(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font:16px system-ui;background:#0b0d12;color:#eef0f6;padding:32px"><h1 style="font-size:22px">${title}</h1><p>${text}</p><p><a style="color:#b4aaff" href="/#mehr">Zurück zur App</a></p></body>`, { 'content-type': 'text/html; charset=utf-8' });
         const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        if (url.searchParams.get('error')) return page('YouTube nicht verbunden', esc(url.searchParams.get('error')));
+        if (url.searchParams.get('error')) return page(p === '/oauth/tiktok' ? 'TikTok nicht verbunden' : 'YouTube nicht verbunden', esc(url.searchParams.get('error_description') || url.searchParams.get('error')));
         try {
-          const ch = await engine.youtubeCallback({ code: url.searchParams.get('code'), state: url.searchParams.get('state') });
-          return send(res, 302, '', { location: '/#mehr', 'set-cookie': `yt=${encodeURIComponent(ch.title)}; Path=/; Max-Age=60; SameSite=Lax` });
-        } catch (e) { return page('YouTube nicht verbunden', esc(e.message)); }
+          const isTt = p === '/oauth/tiktok';
+          const args = { code: url.searchParams.get('code'), state: url.searchParams.get('state') };
+          const who = isTt ? await engine.tiktokCallback(args) : await engine.youtubeCallback(args);
+          const label = isTt ? 'TikTok verbunden: ' + (who.username || who.name || 'Konto') : 'YouTube verbunden: ' + who.title;
+          return send(res, 302, '', { location: '/#mehr', 'set-cookie': `connected=${encodeURIComponent(label)}; Path=/; Max-Age=60; SameSite=Lax` });
+        } catch (e) { return page(p === '/oauth/tiktok' ? 'TikTok nicht verbunden' : 'YouTube nicht verbunden', esc(e.message)); }
       }
 
       if (p === '/api/session' && method === 'GET') {

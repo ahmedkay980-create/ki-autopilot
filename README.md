@@ -2,6 +2,13 @@
 
 Dein KI-Kanal auf Englisch, ohne dich vor der Kamera. Der Server läuft Tag und Nacht in der Cloud. Die App auf deinem Handy ist die Fernbedienung.
 
+**Ein Knopf:** Auf der Startseite tippst du **„Neues Video – alles automatisch“**. Den Rest erledigt die App:
+- Sie analysiert den Markt und wählt das stärkste Thema.
+- Sie recherchiert, schreibt das Skript und prüft die Fakten.
+- Sie spricht den Text ein, erstellt die KI-Szenen und schneidet das Video.
+
+Danach bekommst du eine Push-Nachricht: **„Video fertig – bitte OK“**. Du schaust es an und tippst **OK**, in der App oder direkt in der Benachrichtigung. Dann geht es **sofort und gleichzeitig** auf Instagram, TikTok und YouTube. Was wo geklappt hat, zeigt dir die App je Plattform.
+
 **So läuft ein Tag:**
 
 1. **07:00** – Der Trend-Radar schaut, was gerade viel gesehen wird: YouTube-Aufrufe, Hacker News, Reddit und die KI-News der letzten 48 Stunden (Claude-Websuche). Daraus macht Claude acht Themen, sortiert nach Nachfrage. Du bekommst eine Push-Nachricht.
@@ -124,6 +131,19 @@ Die Meta-App kann im Entwicklungsmodus bleiben, solange nur dein eigenes Konto v
    - Den Antrag stellst du über das Formular „YouTube API Services – Audit and Quota Extension“.
    - Bis zur Freigabe zeigt die App das an. Öffentlich geht es dann über **Studio → Teilen → YouTube-App**.
 
+### Schritt 6b – TikTok (10 Minuten)
+
+1. Auf [developers.tiktok.com](https://developers.tiktok.com) mit deinem TikTok-Konto anmelden → **Manage apps → Connect an app**.
+2. Produkte hinzufügen:
+   - **Login Kit:** Als Redirect URI die Adresse aus der App eintragen (Mehr → TikTok → Kopieren), z. B. `https://5-75-123-45.sslip.io/oauth/tiktok`.
+   - **Content Posting API:** Wenn du direkt posten willst, dort „Direct Post“ einschalten.
+3. Scopes: `user.info.basic`, `video.upload`, `video.publish`.
+4. Unter **Sandbox** dein TikTok-Konto als Testnutzer eintragen. So funktioniert alles für dich, ohne dass TikTok die App vorher prüft.
+5. Client Key und Client Secret in der App eintragen → **Speichern** → **Mit TikTok verbinden** → **Testen**.
+6. **Art wählen:**
+   - **Ins TikTok-Postfach** (Standard): Das Video landet in deiner TikTok-App. Ein Tipp auf die Benachrichtigung veröffentlicht es.
+   - **Direkt veröffentlichen:** Geht ohne Tipp online, aber erst nach der App-Prüfung durch TikTok (Antrag im Entwicklerportal). Vorher erlaubt TikTok Direkt-Posts nur privat und nur auf privaten Konten.
+
 ### Schritt 7 – Selbstwartung (5 Minuten)
 
 1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → **Generate new token**.
@@ -141,7 +161,7 @@ Ab dann meldet der Server Fehler selbst. Claude kümmert sich jede Nacht darum.
 - **Sicherheitsnetz Faktencheck:** Findet das Prüfmodell eine erfundene oder falsche Aussage, die es nicht selbst korrigieren kann, hält die App vor dem teuren Teil an. Du bekommst dann eine Push-Nachricht „Kurz prüfen“. Ein Tipp auf „Trotzdem freigeben“, und es geht weiter. Abschalten kannst du das unter Betrieb.
 - **Kennzeichnung:** Jede Caption enthält „Visuals and voice are AI-generated.“ und nennt die Quellen. Meta verlangt die Kennzeichnung realistischer KI-Inhalte.
 - **Originalität:** Instagram drückt gleichförmige Massenware. Die App wechselt deshalb sechs Formate (News in 60 s, Erklärt, KI-Werkzeug, Mythos vs. Fakt, Top 3, Was es für dich heißt) und lernt aus deinen Zahlen. Formate, die schlecht laufen, kommen seltener.
-- **TikTok:** Automatische Uploads neuer Apps sind dort erst nach einer Prüfung öffentlich. Bis dahin: Studio → **Teilen** → TikTok-App wählen. Das Video ist fertig und muss nur noch hochgeladen werden. Für YouTube siehe Schritt 6.
+- **Prüfungen der Plattformen:** TikTok und YouTube schalten öffentliche Uploads neuer Apps erst nach ihrer Prüfung frei. Bis dahin landen TikTok-Videos im Postfach (ein Tipp in der TikTok-App) und YouTube-Uploads privat. Die Anträge stehen in Schritt 6 und 6b. Instagram postet sofort öffentlich.
 - **Tickets sind öffentlich:** Das Repository ist öffentlich, also auch die Fehlertickets. Der Server entfernt Schlüssel und Token aus jedem Bericht.
 - **Musik:** Es gibt keine Hintergrundmusik, denn lizenzierte Instagram-Musik geht über die Schnittstelle nicht. Die Stimme trägt das Video.
 - **Updates:** Der Server holt sich jede Nacht um 03:30 die neueste Version von GitHub.
@@ -176,6 +196,7 @@ Ab dann meldet der Server Fehler selbst. Claude kümmert sich jede Nacht darum.
 | `src/render.js` | Schnitt und Untertitel |
 | `src/instagram.js` | Instagram |
 | `src/youtube.js` | YouTube Shorts |
+| `src/tiktok.js` | TikTok |
 | `src/github.js` | Selbstwartung |
 | `src/webpush.js` | Push |
 | `public/` | die App |

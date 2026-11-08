@@ -8,12 +8,13 @@
   const S = { st: null, sig: '', tabsHtml: '', hold: false, open: new Set(LS.get('kia-open', [])), cdrafts: {}, cmt: 'entwurf', voices: null, installEvt: null, timer: null };
 
   const VSTATUS = {
-    wartet: ['In der Warteschlange', ''], recherche: ['Recherchiert', 'accent'], skript: ['Schreibt das Skript', 'accent'], faktencheck: ['Prüft die Fakten', 'accent'],
+    analyse: ['Analysiert den Markt', 'accent'], wartet: ['In der Warteschlange', ''], recherche: ['Recherchiert', 'accent'], skript: ['Schreibt das Skript', 'accent'], faktencheck: ['Prüft die Fakten', 'accent'],
     stimme: ['Spricht ein', 'accent'], szenen: ['Erstellt KI-Szenen', 'accent'], schnitt: ['Schneidet', 'accent'], pruefen: ['Kurz prüfen', 'warn'],
     fertig: ['Fertig', 'ok'], geplant: ['Geplant', 'ok'], postet: ['Wird gepostet', 'accent'], online: ['Online', 'ok'], gemessen: ['Online', 'ok'],
     fehler: ['Fehler', 'bad'], gestoppt: ['Gestoppt', ''], verworfen: ['Verworfen', ''],
   };
-  const STEPS = ['recherche', 'skript', 'faktencheck', 'stimme', 'szenen', 'schnitt'];
+  const STEPS = ['analyse', 'recherche', 'skript', 'faktencheck', 'stimme', 'szenen', 'schnitt'];
+  const PNAME = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube' };
   const ACTIVE = ['wartet', ...STEPS, 'postet'];
   const FORMAT_DE = { news60: 'News in 60 s', explainer: 'Erklärt', tool: 'KI-Werkzeug', myth: 'Mythos vs. Fakt', list: 'Top 3', future: 'Was es für dich heißt' };
   const SRC = { youtube: ['YouTube', 'src-yt'], hn: ['Hacker News', 'src-hn'], reddit: ['Reddit', 'src-reddit'], web: ['News', 'src-web'] };
@@ -178,7 +179,7 @@
       [s.claude, 'Claude', 'schreibt, recherchiert, prüft'],
       [s.voice, 'Stimme', 'ElevenLabs oder OpenAI'],
       [st.cfg.video.mode !== 'premium' || s.fal, 'fal.ai', 'KI-Videoszenen'],
-      [s.instagram || s.yt, 'Instagram / YouTube', 'mindestens ein Kanal zum Posten'],
+      [s.instagram || s.tiktok || s.yt, 'Instagram / TikTok / YouTube', 'mindestens ein Kanal zum Posten'],
       [s.pushDevices > 0, 'Push', 'Nachricht aufs Handy'],
     ];
     const open = items.filter((x) => !x[0]);
@@ -187,17 +188,44 @@
       <div class="row">${items.map(([ok, n, d]) => `<span class="chip ${ok ? 'ok' : ''}" title="${esc(d)}">${ok ? '✓' : '○'} ${esc(n)}</span>`).join('')}</div></section>`;
   }
 
+  // ---------- Ein Knopf ----------
+  function heroCard(st) {
+    const busy = st.videos.find((v) => v.status === 'analyse');
+    const targets = (st.status.targets || []).map((t) => PNAME[t]);
+    return `<section class="card hero">
+      <button class="btn primary big block" data-act="oneclick" ${busy || !st.status.claude ? 'disabled' : ''}>${busy ? spin + ' Analysiert den Markt …' : 'Neues Video – alles automatisch'}</button>
+      <p class="small muted">Analysiert den Markt, wählt das stärkste Thema, recherchiert, schreibt, prüft die Fakten, spricht ein, erstellt KI-Szenen und schneidet. Du bekommst das fertige Video zum Ansehen${st.status.autoPost ? ' – es geht dann automatisch online.' : ` – mit <b>OK</b> geht es sofort auf ${targets.length ? esc(targets.join(', ')) : 'deine Kanäle'}.`}</p>
+      ${!st.status.claude ? '<p class="small" style="color:var(--warn)">Erst den Claude-Schlüssel eintragen (Mehr → Claude).</p>' : ''}
+    </section>`;
+  }
+
+  function platChips(v) {
+    const p = v.platforms || {};
+    const keys = Object.keys(p);
+    if (!keys.length) return '';
+    return `<div class="plat">${keys.map((k) => {
+      const x = p[k];
+      if (x.status === 'läuft') return chip(`${spin} ${PNAME[k]}`, 'accent');
+      if (x.status === 'fehler') return `<span class="chip bad" title="${esc(x.error || '')}">${PNAME[k]}: Fehler</span>`;
+      const label = k === 'tiktok' && x.draft ? 'TikTok: im Postfach' : (x.privacy && !['public', 'PUBLIC_TO_EVERYONE'].includes(x.privacy)) ? `${PNAME[k]}: ${x.privacy === 'private' || x.privacy === 'SELF_ONLY' ? 'privat' : x.privacy}` : `${PNAME[k]} ✓`;
+      const cls = label.endsWith('✓') ? 'ok' : 'warn';
+      return x.url ? `<a class="chip ${cls}" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(label)}</a>` : chip(esc(label), cls);
+    }).join('')}</div>`;
+  }
+
   // ---------- Live: was gerade passiert ----------
   function liveCard(st) {
     const cur = st.videos.find((v) => ACTIVE.includes(v.status) && v.status !== 'wartet') || st.videos.find((v) => v.status === 'wartet');
     const next = st.videos.filter((v) => v.status === 'geplant' && v.schedule).sort((a, b) => Date.parse(a.schedule.at) - Date.parse(b.schedule.at))[0];
     const running = st.jobs.filter((j) => j.running).map((j) => j.label);
+    const waitingOk = st.videos.find((v) => v.status === 'fertig');
     const events = st.notifications.slice(0, 3);
     const idx = cur ? STEPS.indexOf(cur.status) : -1;
     return `<section class="card ${cur ? 'hot' : ''}"><div class="row between"><b>Gerade</b><span class="small faint">aktualisiert sich selbst</span></div>
       ${cur ? `<a href="#studio/${cur.id}" style="color:inherit;text-decoration:none" class="stack"><span>${spin.replace('class="spin"', 'class="spin" style="color:var(--accent)"')} <b>${esc((VSTATUS[cur.status] || [cur.status])[0])}</b> · ${esc(cur.title)}</span>
         <div class="steps">${STEPS.map((x, i) => `<span class="${i < idx ? 'done' : i === idx ? 'now' : ''}"></span>`).join('')}</div></a>`
         : `<span class="muted">${running.length ? spin + ' ' + esc(running.join(', ')) : 'Keine Produktion. Der Radar meldet sich mit neuen Themen.'}</span>`}
+      ${waitingOk ? `<div class="row between" data-video="${waitingOk.id}"><a href="#studio/${waitingOk.id}" class="small" style="flex:1;min-width:0;color:inherit">Wartet auf dein OK: <b>${esc(waitingOk.title)}</b></a><button class="btn primary small" data-act="post-now">OK</button></div>` : ''}
       ${next ? `<span class="small">Nächster Post: <b>${esc(next.title)}</b> · ${when(next.schedule.at)}</span>` : ''}
       ${events.length ? `<div class="hist">${events.map((n) => `<div><time>${esc(when(n.at))}</time><span>${esc(n.text)}</span></div>`).join('')}</div>` : ''}
     </section>`;
@@ -233,12 +261,14 @@
     const install = !standalone() && S.installEvt ? `<section class="card hot"><div class="row between"><div><b>Als App installieren</b><p class="small muted">Eigenes Symbol, Vollbild, Push-Nachrichten.</p></div><button class="btn primary small" data-act="install">Installieren</button></div></section>` : '';
     return `${head('Trend-Radar', 'Was gerade läuft', r.lastRun ? `Analysiert ${ago(r.lastRun)} · ${r.signals} Signale${srcs ? ' aus ' + esc(srcs) : ''}` : 'Noch nicht analysiert.')}
       ${statusStrip(st)}
+      ${heroCard(st)}
       ${liveCard(st)}
       ${install}
       ${setupCard(st)}
       <button class="btn block" data-act="radar" ${radarRunning ? 'disabled' : ''}>${radarRunning ? spin + ' Analysiert den Markt …' : 'Neu analysieren'}</button>
       ${(r.errors || []).length ? `<div class="note warn small">${r.errors.map(esc).join('<br>')}</div>` : ''}
       ${st.cfg.autoProduce.enabled ? `<div class="note ok small">Vollautomatik an: Jeden Tag um ${esc(st.cfg.autoProduce.at)} Uhr wird das Top-Thema produziert und gepostet.</div>` : ''}
+      ${fresh.length ? '<h2 class="h2">Oder selbst ein Thema wählen</h2>' : ''}
       <section class="sec">${fresh.length ? fresh.map((t, i) => topicCard(t, i, st)).join('') : empty('Noch keine Themen', 'Tippe auf „Neu analysieren“. Der Radar schaut auf YouTube, Hacker News, Reddit und die News der letzten 48 Stunden.')}</section>
       <form class="card" data-form="topic">
         <b>Eigenes Thema</b>
@@ -257,6 +287,7 @@
     if (v.status === 'wartet') detail = `Platz ${Math.max(1, st.status.queue.indexOf(v.id) + 1)} in der Warteschlange`;
     if (v.status === 'szenen') detail = `KI-Szenen: ${v.scenes.filter((s) => s.status === 'fertig' || s.status === 'ersatz' || s.status === 'grafik').length} von ${v.scenes.length} fertig`;
     if (v.status === 'faktencheck') detail = 'Jede Aussage wird mit den Quellen abgeglichen.';
+    if (v.status === 'analyse') detail = 'Schaut auf YouTube, Hacker News, Reddit und die News der letzten 48 Stunden und wählt das stärkste Thema.';
     const m = v.metrics;
     const isOnline = v.status === 'online' || v.status === 'gemessen';
     const player = v.render && !v.render.deleted ? `<div class="vid-wrap"><video src="/media/${v.id}/final.mp4" poster="/media/${v.id}/cover.jpg" controls playsinline preload="none"></video></div>` : '';
@@ -277,10 +308,16 @@
       ${v.status === 'gestoppt' ? `<div class="grid2"><button class="btn" data-act="retry">Weitermachen</button><button class="btn ghost danger" data-act="discard">Verwerfen</button></div>` : ''}
       ${media}
       ${plan || pub ? `<p class="small muted">${plan || pub}</p>` : ''}
-      ${v.youtube ? `<div class="row small">${chip('YouTube ' + (v.youtube.stats ? big(v.youtube.stats.views) + ' Aufrufe' : esc(v.youtube.privacy || '')), v.youtube.privacy === 'public' ? 'ok' : 'warn')}${v.youtube.restricted || v.youtube.privacy === 'private' ? '<span class="small muted">YouTube hält den Upload privat, bis dein Google-Projekt geprüft ist (Mehr → YouTube).</span>' : ''}</div>` : ''}
+      ${v.youtube && v.youtube.stats && v.youtube.privacy === 'public' ? `<div class="row small">${chip('YouTube ' + big(v.youtube.stats.views) + ' Aufrufe', 'ok')}</div>` : ''}
+      ${v.youtube && (v.youtube.restricted || v.youtube.privacy === 'private') ? '<span class="small muted">YouTube hält den Upload privat, bis dein Google-Projekt geprüft ist (Mehr → YouTube Shorts).</span>' : ''}
+      ${v.platforms && v.platforms.tiktok && v.platforms.tiktok.draft ? '<span class="small muted">TikTok: Das Video liegt in deinem TikTok-Postfach. Ein Tipp auf die Benachrichtigung in der TikTok-App veröffentlicht es.</span>' : ''}
       ${m ? `<div class="row small">${chip(big(m.views ?? m.reach) + ' Aufrufe')}${m.retention != null ? chip(nf(m.retention) + ' % geschaut', m.retention >= 50 ? 'ok' : 'warn') : ''}${m.sharesK != null ? chip(nf(m.sharesK, 1) + ' Shares/1.000') : ''}</div>` : ''}
+      ${platChips(v)}
+      ${v.status === 'fertig' ? `<button class="btn primary big block" data-act="post-now">${st.status.dryRun ? 'OK – hochladen (Trockenlauf)' : `OK – jetzt hochladen${(st.status.targets || []).length ? ' auf ' + esc(st.status.targets.map((t) => PNAME[t]).join(', ')) : ''}`}</button>
+        ${!(st.status.targets || []).length && !st.status.dryRun ? '<p class="small" style="color:var(--warn)">Noch kein Kanal verbunden – Mehr → Instagram, TikTok oder YouTube.</p>' : ''}` : ''}
+      ${v.platforms && Object.values(v.platforms).some((x) => x.status === 'fehler') && v.status === 'online' ? '<button class="btn small" data-act="post-now">Fehlgeschlagene erneut hochladen</button>' : ''}
       ${v.render && !v.render.deleted ? `<div class="row">
-        ${!v.published ? '<button class="btn primary small" data-act="post-now">Jetzt posten</button>' : ''}
+        ${!v.published && v.status !== 'fertig' ? '<button class="btn primary small" data-act="post-now">Jetzt posten</button>' : ''}
         <button class="btn small" data-act="share">Teilen</button>
         <a class="btn small ghost" href="/media/${v.id}/final.mp4" download="${esc(slug(v.title))}.mp4">Laden</a>
         ${v.published && v.published.permalink ? `<a class="btn small ghost" href="${esc(v.published.permalink)}" target="_blank" rel="noopener">Auf Instagram</a>` : ''}
@@ -303,13 +340,14 @@
     const vids = st.videos;
     const attention = vids.filter((v) => v.status === 'pruefen' || v.status === 'fehler');
     const active = vids.filter((v) => ACTIVE.includes(v.status));
-    const ready = vids.filter((v) => v.status === 'fertig' || v.status === 'geplant').sort((a, b) => Date.parse((a.schedule || {}).at || 0) - Date.parse((b.schedule || {}).at || 0));
+    const waiting = vids.filter((v) => v.status === 'fertig');
+    const ready = vids.filter((v) => v.status === 'geplant').sort((a, b) => Date.parse((a.schedule || {}).at || 0) - Date.parse((b.schedule || {}).at || 0));
     const online = vids.filter((v) => v.status === 'online' || v.status === 'gemessen').slice(0, 12);
     const stopped = vids.filter((v) => v.status === 'gestoppt');
     const sec = (title, list) => (list.length ? `<section class="sec"><div class="sec-title"><h2 class="h2">${title}</h2><span class="small faint">${list.length}</span></div>${list.map((v) => videoCard(v, st)).join('')}</section>` : '');
     if (!vids.length) return `${head('Studio', 'Deine Videos')}${empty('Noch keine Videos', 'Tippe im Radar bei einem Thema auf „Video erstellen“. Hier siehst du dann jeden Schritt bis zum fertigen Video.', '<a class="btn primary" href="#radar">Zum Radar</a>')}`;
-    return `${head('Studio', 'Deine Videos', st.status.autoPost ? 'Fertige Videos gehen automatisch zum nächsten Sendeplatz online.' : 'Fertige Videos warten auf deinen Tipp auf „Jetzt posten“.')}
-      ${sec('Braucht dich', attention)}${sec('In Arbeit', active)}${sec('Fertig und geplant', ready)}${sec('Online', online)}${sec('Gestoppt', stopped)}`;
+    return `${head('Studio', 'Deine Videos', st.status.autoPost ? 'Fertige Videos gehen automatisch online.' : 'Fertige Videos warten auf dein OK – dann gehen sie sofort überall online.')}
+      ${sec('Wartet auf dein OK', waiting)}${sec('Braucht dich', attention)}${sec('In Arbeit', active)}${sec('Geplant', ready)}${sec('Online', online)}${sec('Gestoppt', stopped)}`;
   }
 
   // ---------- Kanal ----------
@@ -399,8 +437,8 @@
       ${set('betrieb', 'Betrieb', s.dryRun ? chip('Trockenlauf', 'warn') : chip('Live', 'ok'), `<form data-hold data-section="betrieb">
         ${toggle('autopilot', c.autopilot, 'Autopilot', 'Radar, Posten, Kommentare und Zahlen laufen von selbst.')}
         ${toggle('dryRun', c.dryRun, 'Trockenlauf', 'Nichts wird wirklich gepostet oder beantwortet. Ausschalten = live.')}
-        ${toggle('autoPost', c.autoPost, 'Fertige Videos automatisch posten')}
-        ${field('Wann posten?', select('postTiming', c.postTiming, [['slot', 'Zum nächsten Sendeplatz'], ['sofort', 'Sofort nach Fertigstellung']]))}
+        ${toggle('autoPost', c.autoPost, 'Ohne mein OK automatisch posten', 'Aus: Jedes fertige Video wartet auf dein OK und geht dann sofort überall online.')}
+        ${field('Wenn ohne OK: wann posten?', select('postTiming', c.postTiming, [['slot', 'Zum nächsten Sendeplatz'], ['sofort', 'Sofort nach Fertigstellung']]))}
         ${field('Sendeplätze', `<input type="text" name="slots" data-list value="${esc(c.slots.join(', '))}">`, 'Uhrzeiten deiner Zielgruppe, z. B. 12:00, 19:00')}
         ${field('Zielgruppe', select('channel.audienceTz', c.channel.audienceTz, TZS))}
         ${toggle('autoProduce.enabled', c.autoProduce.enabled, 'Vollautomatik', 'Jeden Tag selbst das Top-Thema produzieren – ganz ohne Tippen.')}
@@ -455,6 +493,18 @@
         <div class="grid2"><button class="btn primary" type="button" data-act="ig-connect">${s.instagram ? 'Neu verbinden' : 'Verbinden'}</button>${testBtn('instagram')}</div>
         ${toggle('instagram.shareToFeed', c.instagram.shareToFeed, 'Reels auch im Feed zeigen')}
         ${saveBtn}</form>`)}
+
+      ${set('tt', 'TikTok', okChip(s.tiktok, esc(s.ttUser ? '@' + s.ttUser : 'verbunden'), s.ttConfigured ? 'nicht verbunden' : 'fehlt'), `<form data-hold data-section="tiktok">
+        ${s.tiktok ? `<div class="note ok small">Verbunden${s.ttUser ? ' mit @' + esc(s.ttUser) : ''}. Videos werden mit KI-Kennzeichnung hochgeladen.</div>` : '<p class="small muted">Lädt jedes freigegebene Video auf TikTok. Einrichtung in der Anleitung (TikTok for Developers → App mit Login Kit und Content Posting API).</p>'}
+        ${toggle('tiktok.enabled', c.tiktok.enabled, 'Auf TikTok hochladen')}
+        ${field('Art', select('tiktok.mode', c.tiktok.mode, [['entwurf', 'Ins TikTok-Postfach'], ['direkt', 'Direkt veröffentlichen']]), 'Postfach: Du veröffentlichst mit einem Tipp in der TikTok-App. Direkt: geht ohne Tipp online – aber erst, wenn TikTok deine App geprüft hat; vorher nur privat und nur auf privaten Konten.')}
+        ${field('Sichtbarkeit bei Direkt-Posts', select('tiktok.privacy', c.tiktok.privacy, [['PUBLIC_TO_EVERYONE', 'Öffentlich'], ['MUTUAL_FOLLOW_FRIENDS', 'Freunde'], ['FOLLOWER_OF_CREATOR', 'Follower'], ['SELF_ONLY', 'Nur ich']]))}
+        ${field('Client Key', text('tiktok.clientKey', c.tiktok.clientKey))}
+        ${field('Client Secret', secret('tiktok.clientSecret', c.tiktok.clientSecretSet, c.tiktok.clientSecret))}
+        ${s.ttRedirect ? field('Redirect URI für TikTok', `<input type="text" readonly value="${esc(s.ttRedirect)}">`, '<button class="btn small ghost" type="button" data-act="copy" data-text="' + esc(s.ttRedirect) + '">Kopieren</button> Bei TikTok unter Login Kit eintragen.') : ''}
+        <div class="grid2">${saveBtn}<button class="btn" type="button" data-act="tt-connect" ${s.ttConfigured ? '' : 'disabled'}>${s.tiktok ? 'Neu verbinden' : 'Mit TikTok verbinden'}</button></div>
+        ${s.tiktok ? `<div class="grid2">${testBtn('tiktok')}<button class="btn ghost danger" type="button" data-act="tt-disconnect">Trennen</button></div>` : ''}
+        </form>`)}
 
       ${set('yt', 'YouTube Shorts', okChip(s.yt, esc(s.ytChannel || 'verbunden'), s.ytConfigured ? 'nicht verbunden' : 'fehlt'), `<form data-hold data-section="youtube">
         ${s.yt ? `<div class="note ok small">Verbunden mit dem Kanal „${esc(s.ytChannel)}“. Jedes Video geht zusätzlich als Short auf YouTube, mit KI-Kennzeichnung.</div>` : '<p class="small muted">Lädt jedes fertige Video zusätzlich als YouTube Short hoch und holt Aufrufe und Kommentare. Einrichtung in der Anleitung (Google Cloud → OAuth-Client).</p>'}
@@ -608,8 +658,11 @@
     },
     async 'post-now'(el) {
       const dry = S.st.status.dryRun;
-      if (!(await ask('Jetzt posten?', dry ? 'Trockenlauf ist an: es wird nur simuliert.' : 'Das Video geht sofort auf Instagram online.', 'Posten'))) return;
-      await run(el, () => api(`/api/videos/${vid(el)}/post-now`), dry ? 'Trockenlauf läuft.' : 'Wird gepostet – dauert ein paar Minuten.');
+      await run(el, () => api(`/api/videos/${vid(el)}/post-now`), dry ? 'Trockenlauf: wird nur simuliert.' : 'Wird überall hochgeladen. Du bekommst eine Nachricht, sobald es online ist.');
+    },
+    async oneclick(el) {
+      const r = await run(el, () => api('/api/oneclick'), 'Läuft. Du bekommst eine Nachricht, wenn das Video fertig ist.');
+      if (r) location.hash = '#studio/' + r.id;
     },
     async share(el) {
       const v = S.st.videos.find((x) => x.id === vid(el));
@@ -645,6 +698,14 @@
     async 'yt-connect'(el) {
       const r = await run(el, () => api('/api/youtube/auth-url', null, 'GET'));
       if (r && r.url) location.href = r.url;
+    },
+    async 'tt-connect'(el) {
+      const r = await run(el, () => api('/api/tiktok/auth-url', null, 'GET'));
+      if (r && r.url) location.href = r.url;
+    },
+    async 'tt-disconnect'(el) {
+      if (!(await ask('TikTok trennen?', 'Danach wird nichts mehr auf TikTok hochgeladen.', 'Trennen'))) return;
+      await run(el, () => api('/api/tiktok/disconnect'), 'TikTok getrennt.');
     },
     async 'yt-disconnect'(el) {
       if (!(await ask('YouTube trennen?', 'Danach werden keine Shorts mehr hochgeladen.', 'Trennen'))) return;
@@ -697,8 +758,8 @@
       if (!s.authed) return renderLogin(s);
       await load(true);
       startPolling();
-      const yt = document.cookie.match(/(?:^|; )yt=([^;]+)/);
-      if (yt) { toast('YouTube verbunden: ' + decodeURIComponent(yt[1])); document.cookie = 'yt=; Max-Age=0; Path=/'; }
+      const conn = document.cookie.match(/(?:^|; )connected=([^;]+)/);
+      if (conn) { toast(decodeURIComponent(conn[1])); document.cookie = 'connected=; Max-Age=0; Path=/'; }
     } catch (e) {
       $('#app').innerHTML = `<div class="card empty"><strong>Server nicht erreichbar</strong><p>${esc(e.message)}</p></div>`;
     }
