@@ -19,8 +19,11 @@ write_files:
       PW=$(head -n1 /root/ki-autopilot-passwort | tr -d '[:space:]')
       printf 'APP_PASSWORD=%s\nDOMAIN=%s\n' "$PW" "$DOMAIN" > /opt/ki-autopilot/.env
       chmod 600 /opt/ki-autopilot/.env
-      cd /opt/ki-autopilot && docker compose up -d --build
-      echo '30 3 * * * root /opt/ki-autopilot/deploy/update.sh >> /var/log/ki-autopilot-update.log 2>&1' > /etc/cron.d/ki-autopilot
+      cd /opt/ki-autopilot && mkdir -p data && docker compose up -d --build
+      echo "$(git rev-parse --short=7 HEAD) $(date '+%d.%m.%Y %H:%M')" > data/version.txt
+      U=/opt/ki-autopilot/deploy/update.sh
+      L=/var/log/ki-autopilot-update.log
+      printf '30 3 * * * root %s >> %s 2>&1\n*/5 * * * * root [ -f /opt/ki-autopilot/data/update-request ] && rm -f /opt/ki-autopilot/data/update-request && %s >> %s 2>&1\n' "$U" "$L" "$U" "$L" > /etc/cron.d/ki-autopilot
       echo "KI-Autopilot: https://$DOMAIN" > /etc/motd
 package_update: true
 packages:

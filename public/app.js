@@ -178,13 +178,29 @@
       [s.claude, 'Claude', 'schreibt, recherchiert, prüft'],
       [s.voice, 'Stimme', 'ElevenLabs oder OpenAI'],
       [st.cfg.video.mode !== 'premium' || s.fal, 'fal.ai', 'KI-Videoszenen'],
-      [s.instagram, 'Instagram', 'zum Posten'],
+      [s.instagram || s.yt, 'Instagram / YouTube', 'mindestens ein Kanal zum Posten'],
       [s.pushDevices > 0, 'Push', 'Nachricht aufs Handy'],
     ];
     const open = items.filter((x) => !x[0]);
     if (!open.length) return '';
     return `<section class="card warn"><div class="row between"><b>Noch ${open.length} Schritt${open.length === 1 ? '' : 'e'} bis startklar</b><a class="btn small" href="#mehr">Einrichten</a></div>
       <div class="row">${items.map(([ok, n, d]) => `<span class="chip ${ok ? 'ok' : ''}" title="${esc(d)}">${ok ? '✓' : '○'} ${esc(n)}</span>`).join('')}</div></section>`;
+  }
+
+  // ---------- Live: was gerade passiert ----------
+  function liveCard(st) {
+    const cur = st.videos.find((v) => ACTIVE.includes(v.status) && v.status !== 'wartet') || st.videos.find((v) => v.status === 'wartet');
+    const next = st.videos.filter((v) => v.status === 'geplant' && v.schedule).sort((a, b) => Date.parse(a.schedule.at) - Date.parse(b.schedule.at))[0];
+    const running = st.jobs.filter((j) => j.running).map((j) => j.label);
+    const events = st.notifications.slice(0, 3);
+    const idx = cur ? STEPS.indexOf(cur.status) : -1;
+    return `<section class="card ${cur ? 'hot' : ''}"><div class="row between"><b>Gerade</b><span class="small faint">aktualisiert sich selbst</span></div>
+      ${cur ? `<a href="#studio/${cur.id}" style="color:inherit;text-decoration:none" class="stack"><span>${spin.replace('class="spin"', 'class="spin" style="color:var(--accent)"')} <b>${esc((VSTATUS[cur.status] || [cur.status])[0])}</b> · ${esc(cur.title)}</span>
+        <div class="steps">${STEPS.map((x, i) => `<span class="${i < idx ? 'done' : i === idx ? 'now' : ''}"></span>`).join('')}</div></a>`
+        : `<span class="muted">${running.length ? spin + ' ' + esc(running.join(', ')) : 'Keine Produktion. Der Radar meldet sich mit neuen Themen.'}</span>`}
+      ${next ? `<span class="small">Nächster Post: <b>${esc(next.title)}</b> · ${when(next.schedule.at)}</span>` : ''}
+      ${events.length ? `<div class="hist">${events.map((n) => `<div><time>${esc(when(n.at))}</time><span>${esc(n.text)}</span></div>`).join('')}</div>` : ''}
+    </section>`;
   }
 
   // ---------- Radar ----------
@@ -217,6 +233,7 @@
     const install = !standalone() && S.installEvt ? `<section class="card hot"><div class="row between"><div><b>Als App installieren</b><p class="small muted">Eigenes Symbol, Vollbild, Push-Nachrichten.</p></div><button class="btn primary small" data-act="install">Installieren</button></div></section>` : '';
     return `${head('Trend-Radar', 'Was gerade läuft', r.lastRun ? `Analysiert ${ago(r.lastRun)} · ${r.signals} Signale${srcs ? ' aus ' + esc(srcs) : ''}` : 'Noch nicht analysiert.')}
       ${statusStrip(st)}
+      ${liveCard(st)}
       ${install}
       ${setupCard(st)}
       <button class="btn block" data-act="radar" ${radarRunning ? 'disabled' : ''}>${radarRunning ? spin + ' Analysiert den Markt …' : 'Neu analysieren'}</button>
@@ -260,12 +277,14 @@
       ${v.status === 'gestoppt' ? `<div class="grid2"><button class="btn" data-act="retry">Weitermachen</button><button class="btn ghost danger" data-act="discard">Verwerfen</button></div>` : ''}
       ${media}
       ${plan || pub ? `<p class="small muted">${plan || pub}</p>` : ''}
+      ${v.youtube ? `<div class="row small">${chip('YouTube ' + (v.youtube.stats ? big(v.youtube.stats.views) + ' Aufrufe' : esc(v.youtube.privacy || '')), v.youtube.privacy === 'public' ? 'ok' : 'warn')}${v.youtube.restricted || v.youtube.privacy === 'private' ? '<span class="small muted">YouTube hält den Upload privat, bis dein Google-Projekt geprüft ist (Mehr → YouTube).</span>' : ''}</div>` : ''}
       ${m ? `<div class="row small">${chip(big(m.views ?? m.reach) + ' Aufrufe')}${m.retention != null ? chip(nf(m.retention) + ' % geschaut', m.retention >= 50 ? 'ok' : 'warn') : ''}${m.sharesK != null ? chip(nf(m.sharesK, 1) + ' Shares/1.000') : ''}</div>` : ''}
       ${v.render && !v.render.deleted ? `<div class="row">
         ${!v.published ? '<button class="btn primary small" data-act="post-now">Jetzt posten</button>' : ''}
         <button class="btn small" data-act="share">Teilen</button>
         <a class="btn small ghost" href="/media/${v.id}/final.mp4" download="${esc(slug(v.title))}.mp4">Laden</a>
         ${v.published && v.published.permalink ? `<a class="btn small ghost" href="${esc(v.published.permalink)}" target="_blank" rel="noopener">Auf Instagram</a>` : ''}
+        ${v.youtube && v.youtube.url ? `<a class="btn small ghost" href="${esc(v.youtube.url)}" target="_blank" rel="noopener">Auf YouTube</a>` : ''}
         ${!v.published ? '<button class="btn small ghost danger" data-act="discard">Verwerfen</button>' : ''}</div>` : ''}
       ${v.script ? `<details class="more" ${S.open.has(v.id) ? 'open' : ''} data-open="${v.id}"><summary>Skript, Quellen, Verlauf</summary>
         <div class="stack" style="margin-top:10px">
@@ -314,11 +333,12 @@
     const rep = st.reports[0];
     const posted = st.videos.filter((v) => v.published).sort((a, b) => Date.parse(b.published.at) - Date.parse(a.published.at));
     const formats = Object.entries(st.stats.formats || {}).sort((a, b) => b[1].score - a[1].score);
-    return `${head('Kanal', esc(st.cfg.channel.handle || st.cfg.channel.name), st.status.instagram ? '' : 'Verbinde Instagram, dann erscheinen hier Aufrufe, Zuschauzeit und Follower.')}
+    const ytViews = st.videos.filter((v) => v.youtube && v.youtube.stats && Date.now() - Date.parse(v.youtube.at || v.createdAt) < 7 * 864e5).reduce((a, v) => a + v.youtube.stats.views, 0);
+    return `${head('Kanal', esc(st.cfg.channel.handle || st.cfg.channel.name), st.status.instagram || st.status.yt ? `${w.posts} Video${w.posts === 1 ? '' : 's'} in den letzten 7 Tagen${st.status.ytChannel ? ' · YouTube: ' + esc(st.status.ytChannel) : ''}` : 'Verbinde Instagram oder YouTube, dann erscheinen hier Aufrufe, Zuschauzeit und Follower.')}
       <div class="tiles">
         <div class="tile"><span class="n">${big(w.views)}</span><span class="l">Aufrufe · 7 Tage</span></div>
         <div class="tile"><span class="n">${w.retention != null ? nf(w.retention) + ' %' : '–'}</span><span class="l">Ø geschaut</span></div>
-        <div class="tile"><span class="n">${w.posts}</span><span class="l">Videos · 7 Tage</span></div>
+        <div class="tile"><span class="n">${big(ytViews)}</span><span class="l">YouTube-Aufrufe · 7 Tage</span></div>
         <div class="tile"><span class="n">${big(last)}</span><span class="l">Follower${last != null && weekAgo != null ? ` · ${last - weekAgo >= 0 ? '+' : ''}${nf(last - weekAgo)}` : ''}</span></div>
       </div>
       <section class="card"><b>Follower</b><div class="spark">${spark(f)}</div></section>
@@ -330,7 +350,7 @@
         ${posted.length ? `<div class="card flat list">${posted.map((v) => {
           const m = v.metrics;
           return `<a class="li" href="#studio/${v.id}" style="color:inherit;text-decoration:none">${v.render ? `<img class="thumb" src="/media/${v.id}/cover.jpg" alt="" loading="lazy">` : ''}
-            <div class="body"><b>${esc(v.title)}</b><span class="meta">${esc(when(v.published.at))}${v.published.dryRun ? ' · Trockenlauf' : ''}${m ? ` · ${big(m.views ?? m.reach)} Aufrufe${m.retention != null ? ` · ${nf(m.retention)} % geschaut` : ''}` : ''}</span></div></a>`;
+            <div class="body"><b>${esc(v.title)}</b><span class="meta">${esc(when(v.published.at))}${v.published.dryRun ? ' · Trockenlauf' : ''}${m ? ` · IG ${big(m.views ?? m.reach)}${m.retention != null ? ` · ${nf(m.retention)} % geschaut` : ''}` : ''}${v.youtube && v.youtube.stats ? ` · YT ${big(v.youtube.stats.views)}` : ''}</span></div></a>`;
         }).join('')}</div>` : empty('Noch nichts veröffentlicht', 'Sobald das erste Video online ist, steht es hier mit seinen Zahlen.')}
       </section>`;
   }
@@ -344,7 +364,7 @@
       <div class="seg" role="group">${tabs.map(([k, l]) => `<button data-act="cmt-tab" data-v="${k}" aria-pressed="${S.cmt === k}">${l} ${st.comments.filter((c) => c.status === k).length}</button>`).join('')}</div>
       ${list.length ? list.map((c) => `<article class="card" data-cid="${esc(c.id)}">
         <div class="row between"><b>@${esc(c.username)}</b><span class="small faint">${esc(when(c.timestamp))}</span></div>
-        <span class="small muted">zu „${esc(c.videoTitle)}“ · ${esc(c.category)}</span>
+        <span class="small muted">${c.platform === 'youtube' ? 'YouTube' : 'Instagram'} · zu „${esc(c.videoTitle)}“ · ${esc(c.category)}</span>
         <blockquote>${esc(c.text)}</blockquote>
         ${c.status === 'entwurf' ? `<textarea data-cdraft="${esc(c.id)}" rows="2" aria-label="Antwort">${esc(S.cdrafts[c.id] ?? c.draft ?? '')}</textarea>
           <div class="grid2"><button class="btn primary small" data-act="cmt-send">${st.status.dryRun ? 'Antworten (Trockenlauf)' : 'Antworten'}</button><button class="btn ghost small" data-act="cmt-ignore">Ignorieren</button></div>` : ''}
@@ -419,7 +439,7 @@
         ${field('OpenAI-Stimme', select('voice.openaiVoice', c.voice.openaiVoice, OPENAI_VOICES.map((x) => [x, x])))}
         <div class="grid2">${saveBtn}${testBtn('voice')}</div></form>`)}
 
-      ${set('trends', 'Trend-Radar', okChip(s.youtube, 'mit YouTube', 'ohne YouTube'), `<form data-hold data-section="trends">
+      ${set('trends', 'Trend-Radar', okChip(s.youtubeKey, 'mit YouTube', 'ohne YouTube'), `<form data-hold data-section="trends">
         ${field('YouTube-API-Schlüssel', secret('trends.youtubeKey', c.trends.youtubeKeySet, c.trends.youtubeKey, 'AIza…'), 'Optional, aber empfohlen: zeigt echte Aufrufzahlen. Google Cloud Console → „YouTube Data API v3“ aktivieren → Anmeldedaten → API-Schlüssel.')}
         ${field('Suchbegriffe', text('trends.keywords', c.trends.keywords), 'durch Komma getrennt')}
         ${field('Subreddits', text('trends.subreddits', c.trends.subreddits))}
@@ -435,6 +455,29 @@
         <div class="grid2"><button class="btn primary" type="button" data-act="ig-connect">${s.instagram ? 'Neu verbinden' : 'Verbinden'}</button>${testBtn('instagram')}</div>
         ${toggle('instagram.shareToFeed', c.instagram.shareToFeed, 'Reels auch im Feed zeigen')}
         ${saveBtn}</form>`)}
+
+      ${set('yt', 'YouTube Shorts', okChip(s.yt, esc(s.ytChannel || 'verbunden'), s.ytConfigured ? 'nicht verbunden' : 'fehlt'), `<form data-hold data-section="youtube">
+        ${s.yt ? `<div class="note ok small">Verbunden mit dem Kanal „${esc(s.ytChannel)}“. Jedes Video geht zusätzlich als Short auf YouTube, mit KI-Kennzeichnung.</div>` : '<p class="small muted">Lädt jedes fertige Video zusätzlich als YouTube Short hoch und holt Aufrufe und Kommentare. Einrichtung in der Anleitung (Google Cloud → OAuth-Client).</p>'}
+        ${st.videos.some((v) => v.youtube && (v.youtube.restricted || v.youtube.privacy === 'private')) ? '<div class="note warn small">Google hält Uploads aus neuen API-Projekten privat, bis das Projekt geprüft ist. Antrag: Formular „YouTube API Services – Audit and Quota Extension“. Bis dahin: Studio → Teilen → YouTube-App.</div>' : ''}
+        ${toggle('youtube.enabled', c.youtube.enabled, 'Shorts automatisch hochladen')}
+        ${field('Sichtbarkeit', select('youtube.privacy', c.youtube.privacy, [['public', 'Öffentlich'], ['unlisted', 'Nicht gelistet'], ['private', 'Privat']]))}
+        ${field('OAuth-Client-ID', text('youtube.clientId', c.youtube.clientId, '…apps.googleusercontent.com'))}
+        ${field('OAuth-Client-Geheimnis', secret('youtube.clientSecret', c.youtube.clientSecretSet, c.youtube.clientSecret, 'GOCSPX-…'))}
+        ${s.ytRedirect ? field('Weiterleitungs-URI für Google', `<input type="text" readonly value="${esc(s.ytRedirect)}">`, '<button class="btn small ghost" type="button" data-act="copy" data-text="' + esc(s.ytRedirect) + '">Kopieren</button> In Google Cloud beim OAuth-Client eintragen.') : ''}
+        <div class="grid2">${saveBtn}<button class="btn" type="button" data-act="yt-connect" ${s.ytConfigured ? '' : 'disabled'}>${s.yt ? 'Neu verbinden' : 'Mit YouTube verbinden'}</button></div>
+        ${s.yt ? `<div class="grid2">${testBtn('yt')}<button class="btn ghost danger" type="button" data-act="yt-disconnect">Trennen</button></div>` : ''}
+        </form>`)}
+
+      ${set('wartung', 'Wartung und Updates', st.maintenance.issues && st.maintenance.issues.length ? chip(st.maintenance.issues.length + ' Ticket' + (st.maintenance.issues.length === 1 ? '' : 's'), 'warn') : chip('alles ok', 'ok'), `<form data-hold data-section="github">
+        <p class="small muted">Fehler meldet der Server selbst als Ticket auf GitHub. Claude prüft die Tickets jede Nacht, behebt sie im Code und lädt die Korrektur hoch. Der Server spielt Updates um 03:30 Uhr ein – oder sofort per Knopf.</p>
+        <dl class="kv"><dt>Läuft</dt><dd>${st.maintenance.version && st.maintenance.version.sha ? esc(st.maintenance.version.sha) + (st.maintenance.version.date ? ' · ' + esc(st.maintenance.version.date) : '') : 'unbekannt'}</dd>
+          <dt>Neueste</dt><dd>${st.maintenance.latest ? `<a href="${esc(st.maintenance.latest.url)}" target="_blank" rel="noopener">${esc(st.maintenance.latest.sha)}</a> · ${esc(st.maintenance.latest.message)} · ${esc(when(st.maintenance.latest.date))}` : 'noch nicht geprüft'}</dd></dl>
+        ${st.maintenance.latest && st.maintenance.version && st.maintenance.version.sha && st.maintenance.latest.sha !== st.maintenance.version.sha ? '<div class="note ok small">Neue Version bereit.</div>' : ''}
+        <button class="btn" type="button" data-act="update">Update jetzt einspielen</button>
+        ${(st.maintenance.issues || []).map((i) => `<a class="small" href="${esc(i.url)}" target="_blank" rel="noopener">#${i.number} ${esc(i.title)}</a>`).join('')}
+        ${field('GitHub-Token (für Fehlermeldungen)', secret('github.token', c.github.tokenSet, c.github.token, 'github_pat_…'), 'Fein abgestuftes Token nur für das Repository, Berechtigung „Issues: Lesen und Schreiben“.')}
+        ${field('Repository', text('github.repo', c.github.repo))}
+        <div class="grid2">${saveBtn}${testBtn('github')}</div></form>`)}
 
       ${set('kanal', 'Kanal', '', `<form data-hold data-section="kanal">
         ${field('Name', text('channel.name', c.channel.name))}
@@ -599,6 +642,15 @@
       const r = await run(el, () => api('/api/instagram/connect', { token: $('#ig-token').value, appSecret: $('#ig-secret').value }), (x) => `Verbunden mit @${x.username}.`);
       if (r) { S.hold = false; render(true); }
     },
+    async 'yt-connect'(el) {
+      const r = await run(el, () => api('/api/youtube/auth-url', null, 'GET'));
+      if (r && r.url) location.href = r.url;
+    },
+    async 'yt-disconnect'(el) {
+      if (!(await ask('YouTube trennen?', 'Danach werden keine Shorts mehr hochgeladen.', 'Trennen'))) return;
+      await run(el, () => api('/api/youtube/disconnect'), 'YouTube getrennt.');
+    },
+    async update(el) { await run(el, () => api('/api/update'), 'Update angefordert – der Server startet in den nächsten Minuten kurz neu.'); },
     async logout() { await api('/api/logout').catch(() => {}); renderLogin({}); },
   };
   const vid = (el) => el.closest('[data-video]').dataset.video;
@@ -645,6 +697,8 @@
       if (!s.authed) return renderLogin(s);
       await load(true);
       startPolling();
+      const yt = document.cookie.match(/(?:^|; )yt=([^;]+)/);
+      if (yt) { toast('YouTube verbunden: ' + decodeURIComponent(yt[1])); document.cookie = 'yt=; Max-Age=0; Path=/'; }
     } catch (e) {
       $('#app').innerHTML = `<div class="card empty"><strong>Server nicht erreichbar</strong><p>${esc(e.message)}</p></div>`;
     }

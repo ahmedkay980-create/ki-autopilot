@@ -3,7 +3,7 @@
 
 const LABELS = {
   publishDue: 'Posten zum Termin', radar: 'Trend-Radar', autoProduce: 'Vollautomatik', insights: 'Zahlen einsammeln',
-  comments: 'Kommentare', retryFailed: 'Neue Versuche nach Fehlern', followers: 'Follower zählen', tokenRefresh: 'Instagram-Zugang verlängern', weeklyReview: 'Wochen-Review', cleanup: 'Aufräumen',
+  comments: 'Kommentare', retryFailed: 'Neue Versuche nach Fehlern', followers: 'Follower zählen', tokenRefresh: 'Instagram-Zugang verlängern', weeklyReview: 'Wochen-Review', cleanup: 'Aufräumen', githubSync: 'Updates und Tickets prüfen',
 };
 
 function atToday(now, time) {
@@ -33,6 +33,7 @@ class Scheduler {
       { name: 'tokenRefresh', daily: '04:10' },
       { name: 'cleanup', daily: '03:20' },
       { name: 'weeklyReview', weekly: { dow: 0, time: '10:00' } },
+      { name: 'githubSync', every: 60 * 60e3 },
     ].map((j) => ({ ...j, label: LABELS[j.name] }));
   }
 
@@ -97,11 +98,13 @@ class Scheduler {
     const record = (patch) => this.engine.store.update((db) => { db.jobs[name] = { ...(db.jobs[name] || {}), ...patch }; });
     try {
       const result = await fn.call(this.engine);
-      record({ lastRun: this.engine.nowIso(), ok: true, result: String(result || 'erledigt') });
+      record({ lastRun: this.engine.nowIso(), ok: true, result: String(result || 'erledigt'), fails: 0 });
       return result;
     } catch (e) {
-      record({ lastRun: this.engine.nowIso(), ok: false, result: e.message });
+      const fails = ((this.engine.db.jobs[name] || {}).fails || 0) + 1;
+      record({ lastRun: this.engine.nowIso(), ok: false, result: e.message, fails });
       this.engine.log('error', `${LABELS[name] || name}: ${e.message}`);
+      if (fails >= 2 && name !== 'githubSync' && !/nicht erreichbar|fetch failed|ENOTFOUND|ECONN/i.test(e.message)) this.engine.reportProblem({ where: `Aufgabe „${LABELS[name] || name}“`, message: e.message, stack: e.stack });
       throw e;
     } finally {
       this.running.delete(name);

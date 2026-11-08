@@ -81,12 +81,15 @@ function buildState(engine, scheduler) {
     status: {
       autopilot: cfg.autopilot, dryRun: cfg.dryRun, autoPost: cfg.autoPost,
       claude: engine.claude.ready, fal: Boolean(cfg.video.falKey), voice: Boolean(cfg.voice.provider === 'openai' ? cfg.voice.openaiKey : cfg.voice.elevenKey),
-      instagram: engine.ig.ready, youtube: Boolean(cfg.trends.youtubeKey), publicUrl: engine.publicUrl(),
+      instagram: engine.ig.ready, youtubeKey: Boolean(cfg.trends.youtubeKey), publicUrl: engine.publicUrl(),
+      yt: engine.yt.ready, ytConfigured: engine.yt.configured, ytChannel: cfg.youtube.channelTitle, ytRedirect: engine.publicUrl() ? engine.publicUrl() + '/oauth/youtube' : '',
+      github: engine.gh.canWrite,
       pushKey: cfg.push.publicKey, pushDevices: (db.pushSubs || []).length,
       current: engine.current, queue: engine.queue,
     },
     budget: { month, spent: db.costs[month] || { usd: 0 }, limit: cfg.budget.monthlyUsd, estimate: engine.estimate() },
     nextSlot: engine.nextPostTime().toISOString(),
+    maintenance: { ...db.maintenance, version: engine.version(), repo: engine.gh.repo },
     radar: db.radar,
     topics: topics.slice(0, 40),
     videos: db.videos.filter((v) => v.status !== 'verworfen').slice(0, 40).map(slimVideo),
@@ -140,6 +143,9 @@ function createHandler(engine, scheduler, { open = false } = {}) {
     ['POST', /^\/api\/test\/(\w+)$/, async (m) => ({ text: await engine.testService(m[1]) })],
     ['GET', /^\/api\/voices$/, async () => ({ voices: await voice.listVoices({ cfg: engine.cfg, fetch: engine.fetch }) })],
     ['POST', /^\/api\/instagram\/connect$/, async (m, b) => engine.connectInstagram(b)],
+    ['GET', /^\/api\/youtube\/auth-url$/, () => ({ url: engine.youtubeAuthUrl() })],
+    ['POST', /^\/api\/youtube\/disconnect$/, () => { const c = structuredClone(engine.cfg); c.youtube.refreshToken = ''; c.youtube.channelId = ''; c.youtube.channelTitle = ''; engine.saveConfig(c); return { ok: true }; }],
+    ['POST', /^\/api\/update$/, () => engine.requestUpdate()],
     ['POST', /^\/api\/push\/subscribe$/, (m, b) => { engine.addPushSub(b); return { ok: true }; }],
     ['POST', /^\/api\/notifications\/read$/, () => { engine.store.update((db) => db.notifications.forEach((n) => { n.read = true; })); return { ok: true }; }],
   ];
@@ -155,6 +161,17 @@ function createHandler(engine, scheduler, { open = false } = {}) {
         const v = engine.db.videos.find((x) => x.render && x.render.token === m[1]);
         if (!v) return send(res, 404, { error: 'Nicht gefunden' });
         return serveFile(req, res, path.join(engine.vdir(v), m[2]));
+      }
+
+      if (p === '/oauth/youtube' && method === 'GET') {
+        if (!authed(req)) return send(res, 302, '', { location: '/' });
+        const page = (title, text) => send(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font:16px system-ui;background:#0b0d12;color:#eef0f6;padding:32px"><h1 style="font-size:22px">${title}</h1><p>${text}</p><p><a style="color:#b4aaff" href="/#mehr">Zurück zur App</a></p></body>`, { 'content-type': 'text/html; charset=utf-8' });
+        const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        if (url.searchParams.get('error')) return page('YouTube nicht verbunden', esc(url.searchParams.get('error')));
+        try {
+          const ch = await engine.youtubeCallback({ code: url.searchParams.get('code'), state: url.searchParams.get('state') });
+          return send(res, 302, '', { location: '/#mehr', 'set-cookie': `yt=${encodeURIComponent(ch.title)}; Path=/; Max-Age=60; SameSite=Lax` });
+        } catch (e) { return page('YouTube nicht verbunden', esc(e.message)); }
       }
 
       if (p === '/api/session' && method === 'GET') {

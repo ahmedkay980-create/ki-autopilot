@@ -12,13 +12,17 @@ Dein KI-Kanal auf Englisch, ohne dich vor der Kamera. Der Server läuft Tag und 
    - ElevenLabs spricht den Text ein, mit Zeitstempeln für jedes Wort.
    - fal.ai erzeugt für jede Szene ein KI-Video im Hochformat.
    - ffmpeg schneidet alles zusammen und brennt große Untertitel ein, das aktuelle Wort jeweils gelb.
-3. **Das Video geht zum nächsten Sendeplatz online.** Die Sendeplätze sind in US-Zeit (12:00 und 19:00 New York), weil dort dein Publikum sitzt. Push: „Online“.
+3. **Das Video geht zum nächsten Sendeplatz online**, auf Instagram als Reel und auf YouTube als Short. Die Sendeplätze sind in US-Zeit (12:00 und 19:00 New York), weil dort dein Publikum sitzt. Push: „Online“.
 4. **Danach läuft der Rest von selbst:**
-   - Kommentare werden alle 15 Minuten eingesammelt. Auf Lob dankt die App automatisch, für Fragen schreibt sie Antwortentwürfe.
+   - Kommentare von Instagram und YouTube werden alle 15 Minuten eingesammelt. Auf Lob dankt die App automatisch, für Fragen schreibt sie Antwortentwürfe.
    - Die Zahlen (Aufrufe, Zuschauzeit, Shares) kommen nach 24 Stunden und nach 7 Tagen.
    - Sonntags gibt es ein Wochen-Review. Seine Erkenntnisse fließen in die nächsten Skripte ein.
 
 **Vollautomatik** (Einstellungen → Betrieb): Dann wählt die App jeden Tag selbst das Top-Thema und produziert es. Du musst gar nichts mehr tippen.
+
+**Selbstwartung:** Geht auf dem Server etwas schief, legt er auf GitHub ein Ticket mit Fehlerbericht an. Claude prüft die Tickets jede Nacht um 01:40, behebt den Fehler im Code, testet und lädt die Korrektur hoch. Um 03:30 spielt der Server die neue Version von selbst ein. In der App unter **Mehr → Wartung und Updates** siehst du die laufende Version, die neueste Version und alle offenen Tickets.
+
+Auf der Startseite zeigt die Karte **„Gerade“** jederzeit, was passiert: welches Video entsteht, bei welchem Schritt, was als Nächstes online geht und die letzten Ereignisse.
 
 ---
 
@@ -31,6 +35,7 @@ Dein KI-Kanal auf Englisch, ohne dich vor der Kamera. Der Server läuft Tag und 
 | KI-Szenen (fal.ai, Veo 3 Fast) | ca. 0,60 $ pro Szene | 7 Szenen à 6 s ≈ **4,20 $ pro Video** |
 | Stimme (ElevenLabs Starter) | 5 $ / Monat | reicht für etwa 30 Videos |
 | Trend-Radar | 0 € | YouTube-Schlüssel ist kostenlos |
+| YouTube-Upload | 0 € | bis zu 6 Uploads pro Tag im kostenlosen Kontingent |
 
 **Rechenbeispiel:**
 - **1 Video pro Tag:** rund 130 $ im Monat für die Szenen, plus Server und Stimme.
@@ -102,6 +107,31 @@ Die Meta-App kann im Entwicklungsmodus bleiben, solange nur dein eigenes Konto v
 6. **Radar → Neu analysieren.** Ein Thema antippen → das erste Video entsteht im **Trockenlauf**: Alles passiert echt, nur gepostet wird noch nicht. Im Studio siehst du jeden Schritt und am Ende das fertige Video.
 7. Gefällt dir das Ergebnis: **Mehr → Betrieb → Trockenlauf aus** → Speichern. Ab jetzt postet die App wirklich.
 
+### Schritt 6 – YouTube Shorts (10 Minuten)
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → dasselbe Projekt wie für den API-Schlüssel → „YouTube Data API v3“ ist schon aktiviert.
+2. **Google Auth Platform / OAuth-Zustimmungsbildschirm:**
+   - Typ **Extern**, App-Name „KI-Autopilot“, deine E-Mail eintragen.
+   - Danach **„App veröffentlichen“** (Status „In Produktion“). Sonst läuft der Zugang nach 7 Tagen ab.
+   - Eine Google-Prüfung brauchst du dafür nicht, es ist deine eigene App.
+3. **Anmeldedaten → Anmeldedaten erstellen → OAuth-Client-ID:**
+   - Typ **Webanwendung**.
+   - Bei „Autorisierte Weiterleitungs-URIs“ die Adresse aus der App eintragen (Mehr → YouTube Shorts → Kopieren), z. B. `https://5-75-123-45.sslip.io/oauth/youtube`.
+4. Client-ID und Client-Geheimnis in der App eintragen → **Speichern** → **Mit YouTube verbinden**.
+   - Beim Hinweis „Google hat diese App nicht überprüft“: **Erweitert → Weiter zu KI-Autopilot**.
+   - Kanal wählen: am besten einen eigenen englischen KI-Kanal, nicht deinen bestehenden.
+5. **Wichtig:** Google sperrt Uploads neuer API-Projekte zunächst auf „privat“. Erst nach der Prüfung durch YouTube sind sie öffentlich.
+   - Den Antrag stellst du über das Formular „YouTube API Services – Audit and Quota Extension“.
+   - Bis zur Freigabe zeigt die App das an. Öffentlich geht es dann über **Studio → Teilen → YouTube-App**.
+
+### Schritt 7 – Selbstwartung (5 Minuten)
+
+1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → **Generate new token**.
+2. Repository access: **Only select repositories → ki-autopilot**. Permissions: **Issues → Read and write**. Erstellen und kopieren.
+3. App → **Mehr → Wartung und Updates** → Token eintragen → **Speichern** → **Testen**.
+
+Ab dann meldet der Server Fehler selbst. Claude kümmert sich jede Nacht darum.
+
 **Erster Live-Test (empfohlen):** Die Anbindungen an Instagram, fal.ai und ElevenLabs sind nach deren Dokumentation gebaut und mit simulierten Antworten getestet. Gegen deine echten Konten liefen sie hier noch nie. Poste das erste Live-Video deshalb mit **Studio → Jetzt posten**, während du zuschaust. Läuft das einmal, läuft es auch automatisch.
 
 ---
@@ -111,7 +141,8 @@ Die Meta-App kann im Entwicklungsmodus bleiben, solange nur dein eigenes Konto v
 - **Sicherheitsnetz Faktencheck:** Findet das Prüfmodell eine erfundene oder falsche Aussage, die es nicht selbst korrigieren kann, hält die App vor dem teuren Teil an. Du bekommst dann eine Push-Nachricht „Kurz prüfen“. Ein Tipp auf „Trotzdem freigeben“, und es geht weiter. Abschalten kannst du das unter Betrieb.
 - **Kennzeichnung:** Jede Caption enthält „Visuals and voice are AI-generated.“ und nennt die Quellen. Meta verlangt die Kennzeichnung realistischer KI-Inhalte.
 - **Originalität:** Instagram drückt gleichförmige Massenware. Die App wechselt deshalb sechs Formate (News in 60 s, Erklärt, KI-Werkzeug, Mythos vs. Fakt, Top 3, Was es für dich heißt) und lernt aus deinen Zahlen. Formate, die schlecht laufen, kommen seltener.
-- **TikTok und YouTube Shorts:** Beide lassen automatische Uploads neuer Apps erst nach einer Prüfung öffentlich zu. Bis dahin: Studio → **Teilen** → TikTok- oder YouTube-App wählen. Das Video ist fertig und muss nur noch hochgeladen werden.
+- **TikTok:** Automatische Uploads neuer Apps sind dort erst nach einer Prüfung öffentlich. Bis dahin: Studio → **Teilen** → TikTok-App wählen. Das Video ist fertig und muss nur noch hochgeladen werden. Für YouTube siehe Schritt 6.
+- **Tickets sind öffentlich:** Das Repository ist öffentlich, also auch die Fehlertickets. Der Server entfernt Schlüssel und Token aus jedem Bericht.
 - **Musik:** Es gibt keine Hintergrundmusik, denn lizenzierte Instagram-Musik geht über die Schnittstelle nicht. Die Stimme trägt das Video.
 - **Updates:** Der Server holt sich jede Nacht um 03:30 die neueste Version von GitHub.
 - **Fehler:** Ist ein Dienst kurz nicht erreichbar, versucht die App es bis zu dreimal selbst. Erst danach meldet sie sich.
@@ -144,6 +175,8 @@ Die Meta-App kann im Entwicklungsmodus bleiben, solange nur dein eigenes Konto v
 | `src/visuals.js` | KI-Szenen |
 | `src/render.js` | Schnitt und Untertitel |
 | `src/instagram.js` | Instagram |
+| `src/youtube.js` | YouTube Shorts |
+| `src/github.js` | Selbstwartung |
 | `src/webpush.js` | Push |
 | `public/` | die App |
 

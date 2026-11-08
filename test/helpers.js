@@ -37,7 +37,7 @@ function mockFetch(routes = []) {
     for (const [m, re, handler] of routes) {
       if (m === method && re.test(u)) {
         const r = await handler(u, opts);
-        if (r && r.__status) return response(r.__status, r.json ?? {});
+        if (r && r.__status) return response(r.__status, r.json ?? {}, r.headers || {});
         return response(200, r);
       }
     }

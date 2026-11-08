@@ -51,6 +51,8 @@ const DEFAULT_CONFIG = {
     webSearch: true,
   },
   instagram: { token: '', appSecret: '', tokenRefreshed: null, tokenExpires: null, userId: '', username: '', apiVersion: 'v27.0', shareToFeed: true },
+  youtube: { enabled: true, clientId: '', clientSecret: '', refreshToken: '', channelId: '', channelTitle: '', privacy: 'public' },
+  github: { repo: 'ahmedkay980-create/ki-autopilot', token: '' },
   publicUrl: '',
   push: { publicKey: '', privateKey: '', subject: 'mailto:autopilot@example.com' },
   auth: { passwordHash: '' },
@@ -59,6 +61,7 @@ const DEFAULT_CONFIG = {
 const SECRET_PATHS = [
   'anthropic.apiKey', 'video.falKey', 'voice.elevenKey', 'voice.openaiKey', 'trends.youtubeKey',
   'instagram.token', 'instagram.appSecret', 'push.privateKey', 'auth.passwordHash',
+  'youtube.clientSecret', 'youtube.refreshToken', 'github.token',
 ];
 
 const get = (obj, p) => p.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
@@ -129,6 +132,9 @@ const DEFAULT_DB = {
   sessions: {},
   radar: { lastRun: null, signals: 0, sources: {}, errors: [] },
   learnings: '',
+  maintenance: { checkedAt: null, latest: null, issues: [], error: null },
+  reported: {},
+  oauthState: null,
   log: [],
 };
 

@@ -8,6 +8,8 @@ const U = require('./util');
 const { DEFAULT_CONFIG, DEFAULT_DB, withDefaults } = require('./config');
 const { ClaudeClient } = require('./claude');
 const { InstagramClient } = require('./instagram');
+const { YouTubeClient } = require('./youtube');
+const { GitHubClient, scrub } = require('./github');
 const { Agents } = require('./agents');
 const trends = require('./trends');
 const voice = require('./voice');
@@ -51,6 +53,8 @@ class Engine {
     this.claude = new ClaudeClient({ getConfig, fetchImpl: this.fetch, sleepImpl: this.sleep, onUsage: (u) => this.addCost(u.searches ? 'search' : 'claude', u.usd) });
     this.ig = new InstagramClient({ getConfig, fetchImpl: this.fetch, sleepImpl: this.sleep, log: (l, m) => this.log(l, m) });
     this.agents = new Agents({ claude: this.claude, getConfig, getLearnings: () => this.db.learnings });
+    this.yt = new YouTubeClient({ getConfig, fetchImpl: this.fetch, clock: () => this.now() });
+    this.gh = new GitHubClient({ getConfig, fetchImpl: this.fetch });
 
     this.queue = [];
     this.working = null;
@@ -363,11 +367,15 @@ class Engine {
         this.hist(v, 'Gestoppt');
         return;
       }
+      const step = v.status;
       const f = friendly(e);
       this.setStatus(v, 'fehler', { error: f.text, retryable: f.retryable });
       this.hist(v, 'Fehler: ' + e.message);
       this.log('error', `Produktion „${v.title}“: ${e.message}`);
-      if (!f.retryable || (v.autoRetries || 0) >= 3) this.notify(`Produktion fehlgeschlagen: „${v.title}“ – ${f.text}`, { videoId: v.id, title: 'Fehler' });
+      if (!f.retryable || (v.autoRetries || 0) >= 3) {
+        this.notify(`Produktion fehlgeschlagen: „${v.title}“ – ${f.text}`, { videoId: v.id, title: 'Fehler' });
+        this.reportProblem({ where: `Produktion, Schritt ${step}`, message: e.message, stack: e.stack });
+      }
     }
   }
 
@@ -512,25 +520,49 @@ class Engine {
         this.notify(`Trockenlauf: „${v.title}“ wäre jetzt online gegangen.`, { videoId: v.id });
         return v;
       }
-      if (!this.ig.ready) throw new Error('Instagram ist nicht verbunden (Einstellungen).');
-      const base = this.publicUrl();
-      if (!base.startsWith('https://')) throw new Error('Öffentliche HTTPS-Adresse des Servers fehlt (Einstellungen → Server).');
-      if (!v.render || !fs.existsSync(path.join(this.vdir(v), v.render.file))) throw new Error('Videodatei fehlt.');
-      const videoUrl = `${base}/v/${v.render.token}/${v.render.file}`;
-      const r = await this.ig.publishReel({
-        videoUrl, caption: this.composeCaption(v), shareToFeed: this.cfg.instagram.shareToFeed, thumbOffsetMs: 1200,
-        onStep: (m) => this.hist(v, m),
-      });
-      const at = r.timestamp ? new Date(r.timestamp).toISOString() : this.nowIso();
-      this.setStatus(v, 'online', { published: { at, mediaId: r.mediaId, permalink: r.permalink } });
-      this.hist(v, 'Auf Instagram veröffentlicht');
-      this.notify(`Online: „${v.title}“`, { videoId: v.id, title: 'Veröffentlicht', url: r.permalink || undefined });
+      if (!this.ig.ready && !this.yt.ready) throw new Error('Weder Instagram noch YouTube ist verbunden (Einstellungen).');
+      const file = v.render && path.join(this.vdir(v), v.render.file);
+      if (!file || !fs.existsSync(file)) throw new Error('Videodatei fehlt.');
+      const errors = [];
+      let ig = null;
+      let yt = v.youtube && v.youtube.id ? v.youtube : null;
+      if (this.ig.ready && !(v.published && v.published.mediaId)) {
+        try {
+          const base = this.publicUrl();
+          if (!base.startsWith('https://')) throw new Error('Öffentliche HTTPS-Adresse des Servers fehlt (Einstellungen → Server).');
+          ig = await this.ig.publishReel({
+            videoUrl: `${base}/v/${v.render.token}/${v.render.file}`, caption: this.composeCaption(v), shareToFeed: this.cfg.instagram.shareToFeed, thumbOffsetMs: 1200,
+            onStep: (m) => this.hist(v, m),
+          });
+          this.hist(v, 'Auf Instagram veröffentlicht');
+        } catch (e) { errors.push({ where: 'Instagram', e }); }
+      }
+      if (this.yt.ready && !yt) {
+        try {
+          yt = await this.yt.upload({ file, title: v.title, description: this.composeCaption(v) + '\n\n#Shorts', tags: (v.script && v.script.hashtags) || [], privacy: this.cfg.youtube.privacy });
+          yt.at = this.nowIso();
+          this.hist(v, `Auf YouTube hochgeladen (${yt.privacy})`);
+        } catch (e) { errors.push({ where: 'YouTube', e }); }
+      }
+      if (!ig && !yt && !(v.published && v.published.mediaId)) throw errors[0] ? new Error(errors.map((x) => `${x.where}: ${x.e.message}`).join(' · ')) : new Error('Nichts veröffentlicht.');
+      const published = ig ? { at: ig.timestamp ? new Date(ig.timestamp).toISOString() : this.nowIso(), mediaId: ig.mediaId, permalink: ig.permalink } : v.published || { at: this.nowIso(), youtubeOnly: true };
+      this.setStatus(v, 'online', { published, youtube: yt || undefined, error: undefined });
+      const where = [ig || (v.published && v.published.mediaId) ? 'Instagram' : null, yt ? 'YouTube' : null].filter(Boolean).join(' und ');
+      this.notify(`Online auf ${where}: „${v.title}“${yt && yt.restricted ? ' (YouTube vorerst privat, siehe Einstellungen)' : ''}`, { videoId: v.id, title: 'Veröffentlicht', url: (ig && ig.permalink) || (yt && yt.url) || undefined });
+      for (const x of errors) {
+        this.hist(v, `${x.where} fehlgeschlagen: ${x.e.message}`);
+        this.notify(`${x.where}: „${v.title}“ konnte dort nicht veröffentlicht werden – ${friendly(x.e).text}`, { videoId: v.id, title: 'Teilweise veröffentlicht' });
+        this.reportProblem({ where: `Veröffentlichen auf ${x.where}`, message: x.e.message, stack: x.e.stack });
+      }
       return v;
     } catch (e) {
       const f = friendly(e);
       this.setStatus(v, 'fehler', { error: 'Posten: ' + f.text, retryable: f.retryable, retries: (v.retries || 0) + 1 });
       this.hist(v, 'Posten fehlgeschlagen: ' + e.message);
-      if (!f.retryable || (v.autoRetries || 0) >= 3) this.notify(`„${v.title}“ konnte nicht gepostet werden: ${f.text}`, { videoId: v.id, title: 'Fehler beim Posten' });
+      if (!f.retryable || (v.autoRetries || 0) >= 3) {
+        this.notify(`„${v.title}“ konnte nicht gepostet werden: ${f.text}`, { videoId: v.id, title: 'Fehler beim Posten' });
+        this.reportProblem({ where: 'Veröffentlichen', message: e.message, stack: e.stack });
+      }
       throw e;
     } finally {
       this.busy.delete('pub:' + id);
@@ -581,10 +613,10 @@ class Engine {
   }
 
   async jobInsights() {
-    if (!this.ig.ready) return 'Instagram nicht verbunden';
     const now = this.now().getTime();
     let calls = 0;
     for (const v of this.db.videos) {
+      if (!this.ig.ready) break;
       if (calls >= 15) break;
       const pub = v.published;
       if (!pub || pub.dryRun || !pub.mediaId) continue;
@@ -604,24 +636,46 @@ class Engine {
         });
       } catch (e) { this.log('warn', `Insights für „${v.title}“: ${e.message}`); }
     }
-    return calls ? `${calls} Videos gemessen` : 'nichts fällig';
+    let ytCount = 0;
+    if (this.yt.ready) {
+      const ytVids = this.db.videos.filter((v) => v.youtube && v.youtube.id && now - Date.parse(v.youtube.at || v.createdAt) < U.days(60));
+      if (ytVids.length) {
+        try {
+          const stats = await this.yt.stats(ytVids.map((v) => v.youtube.id));
+          this.store.update(() => { for (const v of ytVids) if (stats[v.youtube.id]) { v.youtube.stats = stats[v.youtube.id]; v.youtube.privacy = stats[v.youtube.id].privacy || v.youtube.privacy; ytCount++; } });
+        } catch (e) { this.log('warn', 'YouTube-Zahlen: ' + e.message); }
+      }
+    }
+    if (!this.ig.ready && !ytCount) return this.yt.ready ? 'nichts fällig' : 'nichts verbunden';
+    return `${calls} Instagram-, ${ytCount} YouTube-Videos gemessen`;
   }
 
   async jobComments() {
-    if (!this.ig.ready) return 'Instagram nicht verbunden';
+    if (!this.ig.ready && !this.yt.ready) return 'nichts verbunden';
     const now = this.now().getTime();
     const own = String(this.cfg.instagram.username || '').toLowerCase();
+    const ownYt = this.cfg.youtube.channelId;
     const known = new Set(this.db.comments.map((c) => c.id));
     const fresh = [];
     for (const v of this.db.videos) {
       const pub = v.published;
-      if (!pub || pub.dryRun || !pub.mediaId || now - Date.parse(pub.at) > U.days(14)) continue;
-      try {
-        for (const c of await this.ig.comments(pub.mediaId)) {
-          if (known.has(c.id) || String(c.username || '').toLowerCase() === own) continue;
-          fresh.push({ id: c.id, videoId: v.id, videoTitle: v.title, username: c.username, text: c.text || '', timestamp: c.timestamp });
-        }
-      } catch (e) { this.log('warn', `Kommentare „${v.title}“: ${e.message}`); }
+      if (!pub || pub.dryRun || now - Date.parse(pub.at) > U.days(14)) continue;
+      if (this.ig.ready && pub.mediaId) {
+        try {
+          for (const c of await this.ig.comments(pub.mediaId)) {
+            if (known.has(c.id) || String(c.username || '').toLowerCase() === own) continue;
+            fresh.push({ id: c.id, platform: 'instagram', videoId: v.id, videoTitle: v.title, username: c.username, text: c.text || '', timestamp: c.timestamp });
+          }
+        } catch (e) { this.log('warn', `Instagram-Kommentare „${v.title}“: ${e.message}`); }
+      }
+      if (this.yt.ready && v.youtube && v.youtube.id && v.youtube.privacy !== 'private') {
+        try {
+          for (const c of await this.yt.comments(v.youtube.id)) {
+            if (known.has(c.id) || (ownYt && c.authorChannelId === ownYt)) continue;
+            fresh.push({ id: c.id, platform: 'youtube', videoId: v.id, videoTitle: v.title, username: c.username, text: c.text, timestamp: c.timestamp });
+          }
+        } catch (e) { this.log('warn', `YouTube-Kommentare „${v.title}“: ${e.message}`); }
+      }
     }
     if (!fresh.length) return 'keine neuen Kommentare';
     const results = [];
@@ -649,7 +703,10 @@ class Engine {
     if (!c) throw new Error('Kommentar nicht gefunden.');
     const msg = String(text || '').trim();
     if (!msg) throw new Error('Antwort ist leer.');
-    if (!this.cfg.dryRun) await this.ig.reply(commentId, msg);
+    if (!this.cfg.dryRun) {
+      if (c.platform === 'youtube') await this.yt.reply(commentId, msg);
+      else await this.ig.reply(commentId, msg);
+    }
     this.store.update(() => { c.status = 'beantwortet'; c.reply = { text: msg, at: this.nowIso(), dryRun: this.cfg.dryRun }; });
     return c;
   }
@@ -738,6 +795,80 @@ class Engine {
     return `${(freed / 1e6).toFixed(1)} MB freigegeben`;
   }
 
+  // ---------- Selbstwartung über GitHub ----------
+  version() {
+    try {
+      const [sha, ...rest] = fs.readFileSync(path.join(this.dataDir, 'version.txt'), 'utf8').trim().split(/\s+/);
+      return { sha: sha || null, date: rest.join(' ') || null };
+    } catch { return { sha: null, date: null }; }
+  }
+
+  /** Fehler als GitHub-Ticket melden (gleicher Fehler höchstens alle 12 Std.). */
+  async reportProblem({ where, message, stack = '' }) {
+    try {
+      const key = where + ':' + String(message).replace(/\d+/g, '#').slice(0, 160);
+      const last = this.db.reported[key];
+      if (last && this.now() - Date.parse(last) < U.hours(12)) return null;
+      this.store.update((db) => { db.reported[key] = this.nowIso(); });
+      if (!this.gh.canWrite) return null;
+      const c = this.cfg;
+      const details = [
+        `Zeit: ${this.nowIso()}`, `Node: ${process.version}`,
+        `Einstellungen: Trockenlauf=${c.dryRun}, Video=${c.video.mode}/${c.video.model}, Stimme=${c.voice.provider}, Claude=${c.anthropic.model}`,
+        '', 'Stack:', scrub(stack).split('\n').slice(0, 12).join('\n'),
+        '', 'Letzte Protokollzeilen:', ...this.db.log.slice(0, 25).map((l) => `${l.at} [${l.level}] ${scrub(l.msg)}`),
+      ].join('\n');
+      const r = await this.gh.report({ where, message: scrub(message), details, version: this.version().sha });
+      this.log('info', `Fehler an GitHub gemeldet (#${r.number}${r.existing ? ', bekannt' : ''})`);
+      return r;
+    } catch (e) {
+      this.log('warn', 'GitHub-Meldung fehlgeschlagen: ' + e.message);
+      return null;
+    }
+  }
+
+  async jobGithubSync() {
+    const [latest, issues] = await Promise.all([
+      this.gh.latestCommit().catch((e) => { throw e; }),
+      this.gh.openIssues().catch(() => []),
+    ]);
+    this.store.update((db) => {
+      db.maintenance = { checkedAt: this.nowIso(), latest, issues: issues.map(({ body, ...rest }) => rest), error: null };
+    });
+    const v = this.version().sha;
+    return latest ? `${issues.length} offene Tickets · ${v && latest.sha !== v ? 'Update bereit' : 'aktuell'}` : 'kein Commit gefunden';
+  }
+
+  /** Update anfordern: der Server-Wächter (Cron, alle 5 Min.) spielt dann die neueste Version ein. */
+  requestUpdate() {
+    fs.writeFileSync(path.join(this.dataDir, 'update-request'), this.nowIso());
+    this.log('info', 'Update angefordert');
+    return { ok: true };
+  }
+
+  // ---------- YouTube-Anmeldung ----------
+  youtubeAuthUrl() {
+    const base = this.publicUrl();
+    if (!base.startsWith('https://')) throw new Error('Die öffentliche HTTPS-Adresse des Servers fehlt noch.');
+    if (!this.yt.configured) throw new Error('Erst Client-ID und Client-Geheimnis von Google eintragen und speichern.');
+    const state = U.token(16);
+    this.store.update((db) => { db.oauthState = { state, at: this.nowIso() }; });
+    return this.yt.authUrl(base, state);
+  }
+
+  async youtubeCallback({ code, state }) {
+    const st = this.db.oauthState;
+    if (!st || st.state !== state || this.now() - Date.parse(st.at) > U.hours(1)) throw new Error('Anmeldung abgelaufen. Bitte in der App erneut „Mit YouTube verbinden“ tippen.');
+    const tok = await this.yt.exchange(code, this.publicUrl());
+    const ch = await this.yt.channel(tok.access_token);
+    const c = structuredClone(this.cfg);
+    Object.assign(c.youtube, { refreshToken: tok.refresh_token, channelId: ch.id, channelTitle: ch.title, enabled: true });
+    this.saveConfig(c);
+    this.store.update((db) => { db.oauthState = null; });
+    this.log('info', `YouTube verbunden: ${ch.title}`);
+    return ch;
+  }
+
   // ---------- Verbindungen ----------
   async connectInstagram({ token, appSecret }) {
     let tok = String(token || '').trim();
@@ -788,6 +919,15 @@ class Engine {
       const r = await trends.youtube({ key: cfg.trends.youtubeKey, keywords: ['AI'], fetch: this.fetch, now: this.now().getTime() });
       if (r.skipped) throw new Error('Kein YouTube-Schlüssel hinterlegt.');
       return `YouTube funktioniert (${r.items.length} Videos gefunden).`;
+    }
+    if (name === 'yt') {
+      const ch = await this.yt.channel();
+      return `YouTube verbunden: ${ch.title} (${ch.subscribers} Abonnenten).`;
+    }
+    if (name === 'github') {
+      const latest = await this.gh.latestCommit();
+      if (this.gh.canWrite) await this.gh.openIssues();
+      return `GitHub erreichbar · neueste Version ${latest ? latest.sha : '–'}${this.gh.canWrite ? ' · Fehlermeldungen aktiv' : ' · ohne Token keine automatischen Fehlermeldungen'}`;
     }
     if (name === 'push') {
       const n = await this.pushAll({ title: 'Autopilot', body: 'Push funktioniert. So meldet sich die App, wenn ein Video fertig ist.', url: '/' });
