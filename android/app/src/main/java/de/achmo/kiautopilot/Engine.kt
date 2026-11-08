@@ -228,6 +228,12 @@ class Engine private constructor(val ctx: Context) {
         ""
     }
 
+    fun batteryOk(): Boolean = try {
+        (ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(ctx.packageName)
+    } catch (ex: Exception) {
+        true
+    }
+
     private fun enqueue(action: String, arg: String?) {
         ContextCompat.startForegroundService(ctx, PipelineService.intent(ctx, action, arg))
     }
@@ -606,13 +612,13 @@ class Engine private constructor(val ctx: Context) {
     private fun caption(v: JSONObject): String {
         val s = v.optJSONObject("script") ?: JSONObject()
         val tags = (s.optJSONArray("hashtags")?.strings() ?: emptyList()).joinToString(" ") { "#$it" }
-        return (s.s("caption") + "\n\n" + tags).trim()
+        return (s.s("caption") + "\n\nVisuals and voice are AI-generated.\n\n" + tags).trim()
     }
 
     private fun ytDescription(v: JSONObject): String {
         val s = v.optJSONObject("script") ?: JSONObject()
         val src = (s.optJSONArray("sources")?.objects() ?: emptyList()).take(5).joinToString("\n") { "• " + it.s("url") }
-        return s.s("caption") + (if (src.isNotEmpty()) "\n\nSources:\n$src" else "") + "\n\nMade with AI.\n\n" +
+        return s.s("caption") + (if (src.isNotEmpty()) "\n\nSources:\n$src" else "") + "\n\nVisuals and voice are AI-generated.\n\n" +
             (s.optJSONArray("hashtags")?.strings() ?: emptyList()).joinToString(" ") { "#$it" }
     }
 
@@ -818,6 +824,14 @@ class Engine private constructor(val ctx: Context) {
     // ---------------------------------------------------------------- Anmeldung (OAuth)
 
     fun authUrl(provider: String): String {
+        val page = try {
+            Http.request("GET", Defaults.REDIRECT, retries = 1).code
+        } catch (ex: Exception) {
+            0
+        }
+        if (page == 404) {
+            throw UserError("Einmalig nötig: GitHub Pages einschalten – github.com/${Defaults.REPO}/settings/pages → Branch „main“, Ordner „/docs“ → Save. Nach 1–2 Minuten erneut auf „Verbinden“ tippen.")
+        }
         val state = provider + "." + newId() + newId()
         val url = when (provider) {
             "youtube" -> {
@@ -989,6 +1003,7 @@ class Engine private constructor(val ctx: Context) {
         o.put("redirect", Defaults.REDIRECT)
         o.put("pages", Defaults.PAGES)
         o.put("estimate", estimate())
+        o.put("batteryOk", batteryOk())
         o.put("steps", jsonArrayOf(STEPS))
         JSONObject(o.toString())
     }

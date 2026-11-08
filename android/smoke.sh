@@ -11,14 +11,18 @@ ui() {
 import re, sys
 x = open('ui.xml', encoding='utf-8', errors='replace').read()
 want = sys.argv[1] if len(sys.argv) > 1 else None
+best = None
 for n in re.findall(r'<node [^>]*>', x):
     t = re.search(r' text="([^"]*)"', n); d = re.search(r'content-desc="([^"]*)"', n)
     b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', n)
     label = (t.group(1) if t else '') or (d.group(1) if d else '')
-    if not label: continue
-    if want is None: print('  UI:', label[:120])
-    elif want in label and b:
-        x1, y1, x2, y2 = map(int, b.groups()); print((x1 + x2) // 2, (y1 + y2) // 2); break
+    if not label or not b: continue
+    x1, y1, x2, y2 = map(int, b.groups())
+    if want is None: print('  UI:', label[:100], f'[{x1},{y1},{x2},{y2}]')
+    elif want in label and x2 > x1 and y2 > y1:
+        area = (x2 - x1) * (y2 - y1)
+        if best is None or area < best[0]: best = (area, (x1 + x2) // 2, (y1 + y2) // 2)
+if want is not None and best: print(best[1], best[2])
 PY
 }
 tap() { local xy; xy=$(ui "$1"); [ -n "$xy" ] || fail "Knopf „$1“ nicht gefunden"; adb shell input tap $xy; echo "getippt: $1 ($xy)"; }

@@ -131,6 +131,24 @@ class MainActivity : Activity() {
             runOnUiThread { openExternal(url) }
         }
 
+        @SuppressLint("BatteryLife")
+        @JavascriptInterface
+        fun battery() {
+            runOnUiThread {
+                try {
+                    startActivity(
+                        Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")),
+                    )
+                } catch (e: Exception) {
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    } catch (e2: Exception) {
+                        js("window.__toast && window.__toast('Bitte in den Android-Einstellungen → Akku die App auf „Nicht einschränken“ stellen')")
+                    }
+                }
+            }
+        }
+
         @JavascriptInterface
         fun share(text: String) {
             runOnUiThread {

@@ -95,7 +95,7 @@ function go(t) {
 
 function sigFor() {
   if (tab === 'mehr') return 'mehr';
-  return JSON.stringify([tab, S.videos.map((v) => [v.id, v.status, v.stepText, v.step, (v.history || []).length, v.platforms]), S.topics.map((t) => t.id), S.radar.at, S.busy, S.missing, S.update.available]);
+  return JSON.stringify([tab, S.videos.map((v) => [v.id, v.status, v.stepText, v.step, (v.history || []).length, v.platforms]), S.topics.map((t) => t.id), S.radar.at, S.busy, S.missing, S.update.available, S.batteryOk]);
 }
 
 function render(force) {
@@ -273,6 +273,9 @@ function viewStart() {
   if (S.missing.length) {
     html += `<div class="card warn"><b>Fast startklar</b><p class="muted small">Es fehlen noch: ${S.missing.map(esc).join(', ')}. Einmal eintragen, danach reicht ein Knopf.</p><button class="btn primary" data-go="mehr" data-open-key="keys">Jetzt eintragen</button></div>`;
   }
+  if (!S.batteryOk && !S.missing.length) {
+    html += `<div class="card"><b>Damit ich auch bei geschlossener App arbeite</b><p class="muted small">Android bremst Apps im Hintergrund. Einmal erlauben, dann laufen Marktanalyse und tägliche Videos zuverlässig.</p><button class="btn" data-act="battery">Im Hintergrund erlauben</button></div>`;
+  }
   if (S.update && S.update.available) {
     html += `<div class="card hot"><b>Update ${esc(S.update.latest)} ist da</b><p class="muted small">Antippen, herunterladen, installieren – deine Einstellungen bleiben.</p><button class="btn primary" data-open="${esc(S.update.url)}">Update laden</button></div>`;
   }
@@ -392,6 +395,7 @@ function viewMehr() {
 
   <details class="set" data-key="auto"><summary><span>Autopilot</span><span class="chip ${c.autopilot.dailyVideo ? 'ok' : ''}">${c.autopilot.dailyVideo ? 'täglich ' + esc(c.autopilot.dailyTime) : 'auf Knopfdruck'}</span></summary>
     <form class="body" data-form="cfg">
+      ${S.batteryOk ? '<div class="note ok small">Hintergrund erlaubt ✓</div>' : '<button class="btn" type="button" data-act="battery">Im Hintergrund erlauben (wichtig für den Autopiloten)</button>'}
       ${toggle('autopilot.dailyVideo', 'Jeden Tag automatisch ein Video', c.autopilot.dailyVideo, 'Ich erstelle es selbstständig und melde mich, wenn es fertig ist.')}
       ${field('autopilot.dailyTime', 'Uhrzeit', c.autopilot.dailyTime, { type: 'time' })}
       ${toggle('autopilot.autoPost', 'Ohne OK sofort hochladen', c.autopilot.autoPost, 'Fertige Videos gehen direkt auf alle verbundenen Plattformen.')}
@@ -541,6 +545,7 @@ document.addEventListener('click', (e) => {
     case 'retry': run(b, () => api('POST', `/videos/${id}/retry`), 'Geht weiter'); break;
     case 'discard': confirmBox('Dieses Video verwerfen?', 'Verwerfen', () => run(null, () => api('POST', `/videos/${id}/discard`), 'Verworfen')); break;
     case 'stop': confirmBox('Video anhalten? Bereits Erstelltes bleibt erhalten, du kannst später weitermachen.', 'Anhalten', () => run(null, () => api('POST', '/stop'), 'Wird angehalten')); break;
+    case 'battery': if (window.Android && window.Android.battery) window.Android.battery(); break;
     case 'update': run(b, () => api('POST', '/update'), (u) => (u.available ? `Update ${u.latest} verfügbar` : 'Du hast die neueste Version')); break;
     default: break;
   }
