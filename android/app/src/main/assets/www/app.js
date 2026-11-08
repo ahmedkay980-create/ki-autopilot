@@ -314,7 +314,7 @@ function viewStudio() {
 
 // ---------- Mehr ----------
 function field(name, label, value, { type = 'text', hint = '', placeholder = '', secretSet = '' } = {}) {
-  const ph = secretSet ? `gespeichert (${secretSet}) – leer lassen = behalten` : placeholder;
+  const ph = secretSet ? `✓ gespeichert ${secretSet}` : placeholder;
   return `<label class="f">${esc(label)}${hint ? ` <span class="hint">${hint}</span>` : ''}
     <input type="${type}" name="${name}" value="${esc(value)}" placeholder="${esc(ph)}" autocomplete="off" autocapitalize="off" spellcheck="false" ${type === 'password' ? 'data-secret="1"' : ''}></label>`;
 }
