@@ -25,9 +25,18 @@ for n in re.findall(r'<node [^>]*>', x):
 if want is not None and best: print(best[1], best[2])
 PY
 }
-tap() { local xy; xy=$(ui "$1"); [ -n "$xy" ] || fail "Knopf „$1“ nicht gefunden"; adb shell input tap $xy; echo "getippt: $1 ($xy)"; }
+tap() {
+  local xy=""
+  for i in 1 2 3 4 5 6 7 8; do
+    xy=$(ui "$1")
+    [ -n "$xy" ] && break
+    adb shell input swipe 500 1500 500 700 300; sleep 1
+  done
+  [ -n "$xy" ] || { ui; fail "Knopf „$1“ nicht gefunden"; }
+  adb shell input tap $xy; echo "getippt: $1 ($xy)"
+}
 alive() { adb shell pidof $PKG >/dev/null || fail "App läuft nicht mehr ($1)"; }
-wait_for() { for i in $(seq 1 "$2"); do ui | grep -q "$1" && return 0; sleep 3; done; return 1; }
+wait_for() { for i in $(seq 1 "$2"); do ui | grep -q "$1" && return 0; adb shell input swipe 500 1500 500 900 200; sleep 3; done; return 1; }
 
 adb install -r KI-Autopilot.apk || fail "Installation"
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
