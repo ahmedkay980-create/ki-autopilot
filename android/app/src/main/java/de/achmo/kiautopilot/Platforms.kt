@@ -177,7 +177,7 @@ class YouTube(private val e: Engine) {
         if (!put.ok || j.s("id").isEmpty()) throw error("YouTube-Upload", put)
         val got = j.optJSONObject("status")?.s("privacyStatus")?.ifEmpty { null } ?: privacy
         val res = JSONObject().put("id", j.s("id")).put("url", "https://www.youtube.com/shorts/" + j.s("id")).put("privacy", got)
-        if (privacy == "public" && got != "public") res.put("note", "YouTube hat es auf „$got“ gesetzt – Uploads aus ungeprüften API-Projekten bleiben privat, bis Google das Projekt geprüft hat.")
+        if (privacy == "public" && got != "public") res.put("note", "YouTube hat es auf „$got“ gesetzt – bitte in YouTube Studio die Standard-Sichtbarkeit des Kanals prüfen.")
         return res
     }
 }

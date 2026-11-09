@@ -341,7 +341,7 @@ function viewMehr() {
 
   <details class="set" data-key="keys"><summary><span>Schlüssel</span>${S.missing.length ? `<span class="chip warn">${S.missing.length} fehlen</span>` : '<span class="chip ok">komplett</span>'}</summary>
     <form class="body" data-form="cfg">
-      ${secret(c, 'anthropic', 'apiKey', 'Claude API-Schlüssel', 'console.anthropic.com → API Keys')}
+      ${secret(c, 'anthropic', 'apiKey', 'Claude API-Schlüssel', 'platform.claude.com → API Keys')}
       ${secret(c, 'video', 'falKey', 'fal.ai-Schlüssel', 'fal.ai → Dashboard → Keys (für KI-Szenen, Schnitt, Untertitel)')}
       ${select('voice.provider', 'Stimme', c.voice.provider, [['elevenlabs', 'ElevenLabs (empfohlen)'], ['openai', 'OpenAI']])}
       ${secret(c, 'voice', 'elevenKey', 'ElevenLabs-Schlüssel', 'elevenlabs.io → Developers → API Keys')}
@@ -369,7 +369,7 @@ function viewMehr() {
         : `<form class="stack" data-form="cfg">
             ${field('youtube.clientId', 'Google Client-ID', yt.clientId, { placeholder: '…apps.googleusercontent.com' })}
             ${secret(c, 'youtube', 'clientSecret', 'Google Client-Geheimnis')}
-            <div class="help"><ol><li>console.cloud.google.com → Projekt → „YouTube Data API v3“ aktivieren</li><li>OAuth-Zustimmungsbildschirm: Extern, dich als Testnutzer, dann <b>„In Produktion“</b> (sonst läuft der Zugang nach 7 Tagen ab)</li><li>Anmeldedaten → OAuth-Client „Webanwendung“ → Weiterleitungs-URI unten eintragen</li></ol></div>
+            <div class="help"><ol><li>console.cloud.google.com → Projekt → „YouTube Data API v3“ aktivieren</li><li>OAuth-Zustimmungsbildschirm: Extern → Zielgruppe → <b>„App veröffentlichen“</b> (sonst läuft der Zugang nach 7 Tagen ab)</li><li>Anmeldedaten → OAuth-Client „Webanwendung“ → Weiterleitungs-URI unten eintragen</li></ol></div>
             <div class="row"><button class="btn" type="submit">Speichern</button><button class="btn primary" type="button" data-connect="youtube" ${yt.clientId && yt.clientSecretSet ? '' : 'disabled'}>Mit Google verbinden</button></div>
           </form>`}
       ${select('youtube.privacy', 'Sichtbarkeit auf YouTube', yt.privacy, [['public', 'Öffentlich'], ['unlisted', 'Nicht gelistet'], ['private', 'Privat']]).replace('<label class="f">', '<label class="f" data-autosave="1">')}
@@ -380,7 +380,7 @@ function viewMehr() {
         : `<form class="stack" data-form="cfg">
             ${field('tiktok.clientKey', 'TikTok Client Key', tt.clientKey)}
             ${secret(c, 'tiktok', 'clientSecret', 'TikTok Client Secret')}
-            <div class="help"><ol><li>developers.tiktok.com → App anlegen → Produkte „Login Kit“ und „Content Posting API“</li><li>Weiterleitungs-URI unten eintragen, Datenschutz- und Nutzungsbedingungen: Links unten</li><li>Bis TikTok die App geprüft hat, geht nur „Entwurf ins Postfach“</li></ol></div>
+            <div class="help"><ol><li>developers.tiktok.com → App anlegen → Produkte „Login Kit“ und „Content Posting API“</li><li>Weiterleitungs-URI, Datenschutz und Nutzungsbedingungen: Links unten</li><li>Sandbox anlegen, dein TikTok-Konto als Testnutzer, Client Key und Secret <b>aus der Sandbox</b> hier eintragen</li></ol></div>
             <div class="row"><button class="btn" type="submit">Speichern</button><button class="btn primary" type="button" data-connect="tiktok" ${tt.clientKey && tt.clientSecretSet ? '' : 'disabled'}>Mit TikTok verbinden</button></div>
           </form>`}
       ${select('tiktok.mode', 'So kommt das Video zu TikTok', tt.mode, [['entwurf', 'Entwurf ins TikTok-Postfach (ein Tipp in TikTok)'], ['direkt', 'Direkt veröffentlichen (nach TikTok-Prüfung)']]).replace('<label class="f">', '<label class="f" data-autosave="1">')}

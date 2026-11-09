@@ -2,6 +2,8 @@
 
 Eine Android-App für einen gesichtslosen, englischsprachigen KI- und Technik-Kanal. Kein Server, kein Computer – alles läuft auf deinem Handy.
 
+Schritt-für-Schritt-Einrichtung: [Einrichtungsplan](https://claude.ai/artifact/Pw8AUWUUaST7UdCfRg836x) · App-Symbol für Entwickler-Konsolen: [icon-1024.png](https://raw.githubusercontent.com/ahmedkay980-create/ki-autopilot/main/docs/icon-1024.png)
+
 **[⬇ App herunterladen (APK)](https://github.com/ahmedkay980-create/ki-autopilot/releases/latest/download/KI-Autopilot.apk)**
 
 ## So funktioniert's
@@ -94,7 +96,7 @@ Technische Fehler meldet die App dann selbst. Claude behebt sie nachts, GitHub b
 ## Ehrlich gesagt: Grenzen der Plattformen
 
 - **Instagram** veröffentlicht sofort öffentlich.
-- **YouTube:** Neue API-Projekte laden nur privat hoch, bis YouTube das Projekt geprüft hat. Den Antrag stellst du über das Formular „YouTube API Services – Audit and Quota Extension“. Bis dahin zeigt die App einen Hinweis.
+- **YouTube** veröffentlicht öffentlich. Laut Google bleiben Uploads aus ungeprüften API-Projekten nicht mehr automatisch privat; erlaubt sind bis zu 100 Uploads am Tag.
 - **TikTok:** Ungeprüfte Apps dürfen nur privat posten. Deshalb legt die App das Video standardmäßig **in dein TikTok-Postfach**; ein Tipp in TikTok veröffentlicht es. Nach der Prüfung durch TikTok stellst du auf „Direkt veröffentlichen“ um.
 - **Kennzeichnung:** Jede Beschreibung enthält „Visuals and voice are AI-generated.“. TikTok und YouTube bekommen zusätzlich das offizielle KI-Kennzeichen.
 - **Faktencheck:** Findet er eine Aussage, die er nicht selbst korrigieren kann, hält die App vor dem teuren Teil an und fragt dich.
