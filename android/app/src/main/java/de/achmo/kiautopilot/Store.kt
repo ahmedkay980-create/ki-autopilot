@@ -34,7 +34,7 @@ object Defaults {
           "tiktok": {"clientKey": "", "clientSecret": "", "refreshToken": "", "openId": "", "username": "", "mode": "entwurf", "privacy": "PUBLIC_TO_EVERYONE"},
           "github": {"token": "", "autoReport": true},
           "budget": {"monthlyUsd": 60},
-          "autopilot": {"radarHours": 6, "dailyVideo": false, "dailyTime": "17:00", "autoPost": false},
+          "autopilot": {"radarHours": 24, "dailyVideo": false, "dailyTime": "17:00", "autoPost": false},
           "quality": {"factCheck": true, "blockOnFail": true}
         }
         """.trimIndent(),
